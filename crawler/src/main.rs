@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate lazy_static;
+
 mod crawl;
 mod redis;
 mod robots;
@@ -7,11 +10,12 @@ use axum::{
     http::StatusCode,
     // http::{HeaderValue, StatusCode, Method},
     // response::IntoResponse,
-    routing::{get, post},
+    routing::get,
     Json,
     Router,
 };
 use deadpool_redis::{Config, Runtime};
+use lapin::{options::QueueDeclareOptions, types::FieldTable, Connection, ConnectionProperties};
 use std::env;
 use tracing::warn;
 
@@ -35,7 +39,8 @@ async fn fallback_route() -> (StatusCode, &'static str) {
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let cfg = Config::from_url(env::var("REDIS_URL").unwrap());
+    let cfg =
+        Config::from_url(env::var("REDIS_URL").unwrap_or("redis://localhost:6379".to_string()));
     let redis_pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
 
     let reqwest_client = reqwest::Client::builder()
@@ -43,9 +48,31 @@ async fn main() {
         .build()
         .unwrap();
 
+    let options = ConnectionProperties::default()
+        .with_executor(tokio_executor_trait::Tokio::current())
+        .with_reactor(tokio_reactor_trait::Tokio);
+
+    let connection = Connection::connect(
+        &env::var("AMQP_URL").unwrap_or("amqp://localhost:5672".to_string()),
+        options,
+    )
+    .await
+    .unwrap();
+    let amqp_channel = connection.create_channel().await.unwrap();
+
+    let _queue = amqp_channel
+        .queue_declare(
+            "crawled_urls",
+            QueueDeclareOptions { durable: true, ..QueueDeclareOptions::default() },
+            FieldTable::default(),
+        )
+        .await
+        .unwrap();
+
     let state = State {
         redis_pool,
         reqwest_client,
+        amqp_channel,
     };
 
     let app = Router::new()
