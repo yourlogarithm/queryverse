@@ -1,0 +1,17 @@
+[package]
+name = "crawler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.81"
+axum = { version = "0.7.5", features = ["macros"] }
+deadpool-redis = "0.14.0"
+reqwest = "0.12.2"
+robotstxt = "0.3.0"
+scraper = "0.19.0"
+tokio = { version = "1.36.0", features = ["full"] }
+tower-http = { version = "0.5.2", features = ["cors"] }
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+url = { version = "2.5.0", features = ["serde"] }
