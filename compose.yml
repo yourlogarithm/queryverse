@@ -1,12 +1,14 @@
 services:
   crawler:
-    build: crawler
+    build:
+      context: .
+      dockerfile: crawler/Dockerfile
     restart: always
     depends_on:
       - redis
       - rabbitmq
     ports:
-      - 8000:8080
+      - 8000:8443
     environment:
       - REDIS_URL=redis://redis:6379
       - AMQP_URL=amqp://rabbitmq:5672

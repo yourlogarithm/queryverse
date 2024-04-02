@@ -20,11 +20,12 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::State) -> anyhow::
         .await
         .with_context(|| "Failed to GET from redis")?
     {
+        debug!("Using cached robots.txt for {domain}");
         content
     } else {
         let content = state
             .reqwest_client
-            .get(format!("{domain}/robots.txt"))
+            .get(format!("https://{domain}/robots.txt"))
             .send()
             .await
             .with_context(|| "Failed to GET robots.txt")?

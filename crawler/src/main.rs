@@ -5,19 +5,15 @@ mod crawl;
 mod redis;
 mod robots;
 mod state;
+mod tls;
 
-use axum::{
-    http::StatusCode,
-    // http::{HeaderValue, StatusCode, Method},
-    // response::IntoResponse,
-    routing::get,
-    Json,
-    Router,
-};
+use axum::{http::StatusCode, routing::get, Json, Router};
 use deadpool_redis::{Config, Runtime};
+use dotenvy::dotenv;
 use lapin::{options::QueueDeclareOptions, types::FieldTable, Connection, ConnectionProperties};
-use std::env;
-use tracing::warn;
+use std::{env, net::SocketAddr};
+use tracing::{info, warn};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::state::State;
 
@@ -37,7 +33,14 @@ async fn fallback_route() -> (StatusCode, &'static str) {
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
+    dotenv().ok();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "crawler=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let cfg =
         Config::from_url(env::var("REDIS_URL").unwrap_or("redis://localhost:6379".to_string()));
@@ -63,7 +66,10 @@ async fn main() {
     let _queue = amqp_channel
         .queue_declare(
             "crawled_urls",
-            QueueDeclareOptions { durable: true, ..QueueDeclareOptions::default() },
+            QueueDeclareOptions {
+                durable: true,
+                ..QueueDeclareOptions::default()
+            },
             FieldTable::default(),
         )
         .await
@@ -83,15 +89,17 @@ async fn main() {
                 .route("/url/:url", get(crawl::crawl))
                 .with_state(state),
         )
-        // .layer(
-        //     CorsLayer::new()
-        //         .allow_origin("http://localhost:3000").parse::<HeaderValue>().unwrap()
-        //         .allow_methods([Method::GET])
-        // )
         .fallback(fallback_route);
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+
+    let ports = tls::Ports {
+        http: 8080,
+        https: 8443,
+    };
+    let config = tls::tls_config(ports).await;
+    let addr = SocketAddr::from(([0, 0, 0, 0], ports.https));
+    info!("Listening on {}", addr);
+    axum_server::bind_rustls(addr, config)
+        .serve(app.into_make_service())
         .await
         .unwrap();
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap();
 }
