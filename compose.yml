@@ -1,25 +1,75 @@
 services:
-  crawler:
+  crawler-service:
     build:
       context: .
-      dockerfile: crawler/Dockerfile
+      dockerfile: crawler-service/Dockerfile
     restart: always
     depends_on:
-      - redis
-      - rabbitmq
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     ports:
-      - 8000:8443
+      - 8000:8000
     environment:
-      - REDIS_URL=redis://redis:6379
-      - AMQP_URL=amqp://rabbitmq:5672
+      - REDIS_URI=redis://redis:6379
+      - AMQP_URI=amqp://rabbitmq:5672
+    volumes:
+      - certificates:/app/certificates
+  language-processor-api:
+    build:
+      context: .
+      dockerfile: language-processor-api/Dockerfile
+    restart: always
+    ports:
+      - 8001:8000
+    volumes:
+      - certificates:/app/certificates
   redis:
-    image: redis:latest
+    image: redis:alpine
     restart: always
     ports:
       - 6379:6379
     command: redis-server --save 20 1 --loglevel warning
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
   rabbitmq:
     image: rabbitmq:3.13-management-alpine
     ports:
-        - 5672:5672
-        - 15672:15672
+      - 5672:5672
+      - 15672:15672
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+  mongodb:
+    image: mongo
+    restart: always
+    ports:
+      - 27017:27017
+    healthcheck:
+      test: echo 'db.runCommand("ping")' | mongo admin -u ${MONGO_INITDB_ROOT_USERNAME} -p ${MONGO_INITDB_ROOT_PASSWORD} --quiet
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+  mongo-express:
+    image: mongo-express
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/
+      ME_CONFIG_BASICAUTH: "false"
+volumes:
+  certificates:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./certificates

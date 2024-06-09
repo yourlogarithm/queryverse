@@ -1,3 +1,5 @@
-crawler/crt
 /target
 .env
+certificates/
+.venv/
+**/__pycache__/

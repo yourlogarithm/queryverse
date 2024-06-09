@@ -1,10 +1,13 @@
-use crate::{redis::Key, state, APP_USER_AGENT};
+use crate::{
+    redis::Key,
+    state::{self, APP_USER_AGENT},
+};
 use anyhow::Context;
 use deadpool_redis::redis::AsyncCommands;
 use robotstxt::DefaultMatcher;
 use tracing::debug;
 
-pub async fn is_robots_allowed(url: &url::Url, state: &state::State) -> anyhow::Result<bool> {
+pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyhow::Result<bool> {
     let mut conn = state
         .redis_pool
         .get()

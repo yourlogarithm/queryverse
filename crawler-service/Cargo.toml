@@ -1,5 +1,5 @@
 [package]
-name = "crawler"
+name = "crawler-service"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,15 +7,18 @@ edition = "2021"
 anyhow = "1.0.81"
 axum = { version = "0.7.5", features = ["macros"] }
 axum-server = { version = "0.6.0", features = ["tls-rustls"] }
-deadpool-redis = "0.14.0"
+deadpool-redis = "0.15.1"
 dotenvy = "0.15.7"
 futures = "0.3.30"
 lapin = "2.3.1"
 lazy_static = "1.4.0"
+prost = "0.12.6"
+prost-types = "0.12.6"
 reqwest = "0.12.2"
 robotstxt = "0.3.0"
 scraper = { version = "0.19.0", features = ["atomic"] }
 serde = { version = "1.0.197", features = ["derive"] }
+sha256 = "1.5.0"
 tokio = { version = "1.36.0", features = ["full"] }
 tokio-executor-trait = "2.1.1"
 tokio-reactor-trait = "1.1.0"
@@ -23,3 +26,6 @@ tower-http = { version = "0.5.2", features = ["cors"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = { version = "2.5.0", features = ["serde"] }
+
+[build-dependencies]
+prost-build = "0.12.6"
