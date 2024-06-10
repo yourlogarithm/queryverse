@@ -59,7 +59,7 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
     if let Some(body) = body_maybe {
         let response = state
             .reqwest_client
-            .post(concat!(env!("LANGUAGE_PROCESSOR_API"), "/embed"))
+            .get(concat!(env!("LANGUAGE_PROCESSOR_API"), "/embedding"))
             .body(body)
             .header("Content-Type", "text/plain")
             .send()
@@ -74,7 +74,7 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
             }
         } else {
             let body = response.bytes().await.context("Embeddings response")?;
-            let embeddings = VectorResponse::decode(body)
+            let embedding = VectorResponse::decode(body)
                 .context("Embeddings deserialization")?
                 .value;
         }

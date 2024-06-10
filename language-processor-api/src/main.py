@@ -1,11 +1,14 @@
 import uvicorn
 from fastapi import FastAPI, Request, Response
+# from pydantic import PROTOBUF, BaseModel
 from sentence_transformers import SentenceTransformer
 from vector_pb2 import VectorResponse
 
-EMBEDDER = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+MODEL = SentenceTransformer("Linq-AI-Research/Linq-Embed-Mistral")
 
 app = FastAPI()
+
+# class SimilarityQuery(BaseModel):
 
 
 @app.get("/")
@@ -13,12 +16,18 @@ def root():
     return {"status": "OK"}
 
 
-@app.post("/embed")
-async def embed(request: Request):
+@app.get("/embedding")
+async def embedding(request: Request):
     text = await request.body()
-    vector = EMBEDDER.encode(text.decode("utf-8"))
+    text = text.decode("utf-8")
+    vector = MODEL.encode(text)
     binary_response = VectorResponse(value=vector).SerializeToString()
     return Response(content=binary_response, media_type="application/octet-stream")
+
+
+# @app.get("/similarity")
+# async def similarity(request: PROTOBUF()):
+#     pass
 
 
 if __name__ == "__main__":
