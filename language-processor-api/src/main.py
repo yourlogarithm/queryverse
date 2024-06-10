@@ -1,10 +1,11 @@
 import uvicorn
 from fastapi import FastAPI, Request, Response
 # from pydantic import PROTOBUF, BaseModel
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer
+from transformers import AutoModel
 from vector_pb2 import VectorResponse
 
-MODEL = SentenceTransformer("Linq-AI-Research/Linq-Embed-Mistral")
+MODEL = AutoModel.from_pretrained('jinaai/jina-embeddings-v2-base-en', trust_remote_code=True)
 
 app = FastAPI()
 
@@ -20,7 +21,7 @@ def root():
 async def embedding(request: Request):
     text = await request.body()
     text = text.decode("utf-8")
-    vector = MODEL.encode(text)
+    vector = MODEL.encode(text, max_length=8192)
     binary_response = VectorResponse(value=vector).SerializeToString()
     return Response(content=binary_response, media_type="application/octet-stream")
 
@@ -36,5 +37,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         ssl_certfile="certificates/certificate.pem",
-        ssl_keyfile="certificates/private-key.pem",
+        ssl_keyfile="certificates/privatekey.pem",
     )

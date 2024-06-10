@@ -3,17 +3,19 @@ use std::collections::HashSet;
 use anyhow::Context;
 use axum::{extract::Path, http::StatusCode, Json};
 use prost::Message;
+use qdrant_client::qdrant::PointStruct;
 use scraper::{Html, Selector};
 use tracing::{debug, error, info};
 
 use crate::{
-    models::{ApiResponse, VectorResponse},
+    models::{ApiResponse, QdrantDocument, VectorResponse},
     robots::is_robots_allowed,
     state,
 };
 
 lazy_static! {
-    static ref BODY_SELECTOR: Selector = Selector::parse("body").unwrap();
+    static ref WHITESPACES: regex::Regex = regex::Regex::new(r"(\s)\s+").unwrap();
+    static ref PARAGRAPH_SELECTOR: Selector = Selector::parse("p").unwrap();
     static ref HREF_SELECTOR: Selector = Selector::parse("a[href]").unwrap();
 }
 
@@ -43,40 +45,61 @@ async fn get_content(url: url::Url, client: &reqwest::Client) -> anyhow::Result<
     Ok(Some(content))
 }
 
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip(url, state), fields(url = %url.as_str()))]
 async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<HashSet<url::Url>> {
     let content = if let Some(content) = get_content(url.clone(), &state.reqwest_client).await? {
         content
     } else {
         return Ok(HashSet::new());
     };
-    let hash = sha256::digest(&content);
+    debug!("Content length: {}", content.len());
     let document = Html::parse_document(&content);
-    let body_maybe = document
-        .select(&BODY_SELECTOR)
-        .next()
-        .map(|e| e.text().collect::<Vec<_>>().join(" "));
-    if let Some(body) = body_maybe {
-        let response = state
-            .reqwest_client
-            .get(concat!(env!("LANGUAGE_PROCESSOR_API"), "/embedding"))
-            .body(body)
-            .header("Content-Type", "text/plain")
-            .send()
-            .await
-            .context("Embeddings request")?;
-        let status = response.status();
-        if !status.is_success() {
-            if let Ok(text) = response.text().await {
-                error!("Failed to get embeddings - {status} {text}");
-            } else {
-                error!("Failed to get embeddings - {status}");
-            }
+    let body = document
+        .select(&PARAGRAPH_SELECTOR)
+        .map(|e| e.text().collect::<Vec<_>>().join(" "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let body = WHITESPACES.replace_all(&body, "$1").to_string();
+    debug!("Body length: {}", body.len());
+    let response = state
+        .reqwest_client
+        .get(concat!(env!("LANGUAGE_PROCESSOR_API"), "/embedding"))
+        .body(body)
+        .header("Content-Type", "text/plain")
+        .send()
+        .await
+        .context("Embeddings request")?;
+    let status = response.status();
+    if !status.is_success() {
+        if let Ok(text) = response.text().await {
+            error!("Failed to get embeddings - {status} {text}");
         } else {
-            let body = response.bytes().await.context("Embeddings response")?;
-            let embedding = VectorResponse::decode(body)
-                .context("Embeddings deserialization")?
-                .value;
+            error!("Failed to get embeddings - {status}");
+        }
+    } else {
+        let body = response.bytes().await.context("Embeddings response")?;
+        let embedding = VectorResponse::decode(body)
+            .context("Embeddings deserialization")?
+            .value;
+        let hash = sha256::digest(&content);
+        let entry = QdrantDocument {
+            url: url.as_str().to_string(),
+            content,
+            date: chrono::Utc::now(),
+            sha256: hash,
+        };
+        let point = PointStruct::new(
+            0,
+            embedding,
+            serde_json::to_value(&entry).unwrap().try_into().unwrap(),
+        );
+        match state
+            .qdrant_client
+            .upsert_points("documents", None, vec![point], None)
+            .await
+        {
+            Ok(info) => debug!("Upserted embeddings - {info:?}"),
+            Err(e) => error!("Failed to upsert embeddings - {e}"),
         }
     }
     let links = document
@@ -88,7 +111,7 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
 }
 
 #[axum::debug_handler]
-#[tracing::instrument(skip(state))]
+#[tracing::instrument(skip(url, state), fields(url = %url.as_str()))]
 pub async fn crawl(
     Path(url): Path<url::Url>,
     axum::extract::State(state): axum::extract::State<state::AppState>,
@@ -96,6 +119,7 @@ pub async fn crawl(
     match is_robots_allowed(&url, &state).await {
         Ok(true) => {
             tokio::spawn(async move {
+                info!("Crawling");
                 match inner_crawl(url.clone(), &state).await {
                     Ok(links) => {
                         info!("{} links found", links.len());

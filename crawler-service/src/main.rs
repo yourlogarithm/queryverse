@@ -43,7 +43,7 @@ async fn main() {
 
     let config = RustlsConfig::from_pem_file(
         PathBuf::from("certificates/certificate.pem"),
-        PathBuf::from("certificates/private-key.pem"),
+        PathBuf::from("certificates/privatekey.pem"),
     )
     .await
     .unwrap();
