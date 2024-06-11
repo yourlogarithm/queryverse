@@ -2,13 +2,19 @@ use std::collections::HashSet;
 
 use anyhow::Context;
 use axum::{extract::Path, http::StatusCode, Json};
+use mongodm::{
+    doc, field,
+    operator::{Set, SetOnInsert},
+    ToRepository,
+};
 use prost::Message;
 use qdrant_client::qdrant::PointStruct;
 use scraper::{Html, Selector};
 use tracing::{debug, error, info};
 
 use crate::{
-    models::{ApiResponse, QdrantDocument, VectorResponse},
+    database::Document,
+    models::{ApiResponse, VectorResponse},
     robots::is_robots_allowed,
     state,
 };
@@ -69,6 +75,11 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
         .send()
         .await
         .context("Embeddings request")?;
+    let links = document
+        .select(&HREF_SELECTOR)
+        .flat_map(|e| e.value().attr("href").map(|relative| url.join(relative)))
+        .flatten()
+        .collect();
     let status = response.status();
     if !status.is_success() {
         if let Ok(text) = response.text().await {
@@ -82,16 +93,36 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
             .context("Embeddings deserialization")?
             .value;
         let hash = sha256::digest(&content);
-        let entry = QdrantDocument {
-            url: url.as_str().to_string(),
-            content,
-            date: chrono::Utc::now(),
-            sha256: hash,
-        };
+        let options = mongodm::mongo::options::UpdateOptions::builder()
+            .upsert(true)
+            .build();
+        let t = chrono::Utc::now();
+        match state
+            .mongo_client
+            .database("crawler")
+            .repository::<Document>()
+            .update_one(
+                doc! { field!(url in Document): url.as_str() },
+                doc! {
+                    SetOnInsert: {
+                        field!(date in Document): mongodm::bson::Bson::DateTime(t.into())
+                    },
+                    Set: {
+                        field!(sha256 in Document): &hash,
+                        field!(visited in Document): mongodm::bson::Bson::DateTime(t.into())
+                    }
+                },
+                options,
+            )
+            .await
+        {
+            Ok(update_result) => debug!("Updated document - {update_result:?}"),
+            Err(e) => error!("Failed to update document - {e}"),
+        }
         let point = PointStruct::new(
             0,
             embedding,
-            serde_json::to_value(&entry).unwrap().try_into().unwrap(),
+            serde_json::json!({"sha256": hash}).try_into().unwrap(),
         );
         match state
             .qdrant_client
@@ -102,11 +133,6 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
             Err(e) => error!("Failed to upsert embeddings - {e}"),
         }
     }
-    let links = document
-        .select(&HREF_SELECTOR)
-        .flat_map(|e| e.value().attr("href").map(|relative| url.join(relative)))
-        .flatten()
-        .collect();
     Ok(links)
 }
 

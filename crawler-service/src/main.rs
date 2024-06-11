@@ -2,6 +2,7 @@
 extern crate lazy_static;
 
 mod crawl;
+mod database;
 mod models;
 mod redis;
 mod robots;

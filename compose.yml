@@ -3,6 +3,12 @@ services:
     build:
       context: .
       dockerfile: crawler-service/Dockerfile
+      args:
+        - LANGUAGE_PROCESSOR_API=https://language-processor-api:8000
+        - REDIS_URI=redis://redis:6379
+        - AMQP_URI=amqp://rabbitmq:5672
+        - QDRANT_URI=https://qdrant:6333
+        - MONGO_URI=mongodb://admin:password@mongodb:27017
     restart: always
     depends_on:
       redis:
@@ -11,11 +17,6 @@ services:
         condition: service_healthy
     ports:
       - 8000:8000
-    environment:
-      - REDIS_URI=redis://redis:6379
-      - AMQP_URI=amqp://rabbitmq:5672
-      - LANGUAGE_PROCESSOR_API=https://language-processor-api:8000
-      - QDRANT_URI=http://qdrant:6333
     volumes:
       - certificates:/app/certificates
 
@@ -55,13 +56,13 @@ services:
     ports:
       - 27017:27017
     healthcheck:
-      test: echo 'db.runCommand("ping")' | mongo admin -u ${MONGO_INITDB_ROOT_USERNAME} -p ${MONGO_INITDB_ROOT_PASSWORD} --quiet
+      test: echo 'db.runCommand("ping")' | mongo admin -u admin -p password --quiet
       interval: 30s
       timeout: 30s
       retries: 3
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
 
   mongo-express:
     image: mongo-express
@@ -69,9 +70,9 @@ services:
     ports:
       - 8081:8081
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
-      ME_CONFIG_MONGODB_URL: mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@mongodb:27017/
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongodb:27017/
       ME_CONFIG_BASICAUTH: "false"
 
   qdrant:
@@ -88,11 +89,18 @@ services:
     configs:
       - source: qdrant_config
         target: /qdrant/config/production.yaml
+    volumes:
+      - certificates:/app/certificates
 
 configs:
   qdrant_config:
     content: |
-      log_level: INFO 
+      log_level: INFO
+      service:
+        enable_tls: true
+      tls:
+        cert: /app/certificates/certificate.pem
+        key: /app/certificates/privatekey.pem
 
 volumes:
   certificates:

@@ -3,13 +3,10 @@ use std::sync::Arc;
 use deadpool_redis::{Config, Runtime};
 use dotenvy::dotenv;
 use lapin::{options::QueueDeclareOptions, types::FieldTable, Connection, ConnectionProperties};
-use qdrant_client::{
-    client::QdrantClient,
-    qdrant::{
-        vectors_config::Config as QConfig, CreateCollection, Distance, VectorParams, VectorsConfig,
-    },
-};
+use qdrant_client::client::QdrantClient;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use crate::database::{init_mongo, init_qdrant};
 
 pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
@@ -19,26 +16,10 @@ pub struct AppState {
     pub reqwest_client: reqwest::Client,
     pub amqp_channel: lapin::Channel,
     pub qdrant_client: Arc<QdrantClient>,
+    pub mongo_client: mongodm::mongo::Client,
 }
 
 impl AppState {
-    async fn init_qdrant(qdrant_client: &QdrantClient) {
-        qdrant_client
-            .create_collection(&CreateCollection {
-                collection_name: "documents".to_string(),
-                vectors_config: Some(VectorsConfig {
-                    config: Some(QConfig::Params(VectorParams {
-                        size: 768,
-                        distance: Distance::Cosine.into(),
-                        ..Default::default()
-                    })),
-                }),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-    }
-
     pub async fn new() -> Self {
         dotenv().ok();
         tracing_subscriber::registry()
@@ -46,9 +27,7 @@ impl AppState {
             .with(tracing_subscriber::fmt::layer())
             .init();
 
-        let cfg = Config::from_url(
-            std::env::var("REDIS_URI").unwrap_or("redis://localhost:6379".to_string()),
-        );
+        let cfg = Config::from_url(env!("REDIS_URI"));
         let redis_pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
 
         let reqwest_client = reqwest::Client::builder()
@@ -61,12 +40,9 @@ impl AppState {
             .with_executor(tokio_executor_trait::Tokio::current())
             .with_reactor(tokio_reactor_trait::Tokio);
 
-        let connection = Connection::connect(
-            &std::env::var("AMQP_URI").unwrap_or("amqp://localhost:5672".to_string()),
-            options,
-        )
-        .await
-        .unwrap();
+        let connection = Connection::connect(env!("AMQP_URI"), options)
+            .await
+            .unwrap();
         let amqp_channel = connection.create_channel().await.unwrap();
 
         let _queue = amqp_channel
@@ -81,21 +57,12 @@ impl AppState {
             .await
             .unwrap();
 
-        let qdrant_client = Arc::new(
-            QdrantClient::from_url(
-                &std::env::var("QDRANT_URI").unwrap_or("http://localhost:6334".to_string()),
-            )
-            .build()
-            .unwrap(),
-        );
-
-        Self::init_qdrant(&qdrant_client).await;
-
         Self {
             redis_pool,
             reqwest_client,
             amqp_channel,
-            qdrant_client,
+            qdrant_client: Arc::new(init_qdrant().await.unwrap()),
+            mongo_client: init_mongo().await.unwrap(),
         }
     }
 }

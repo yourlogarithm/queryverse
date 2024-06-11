@@ -1,8 +1,12 @@
 ARG RUST_VERSION=1.78
 ARG APP_NAME=crawler-service
 FROM rust:${RUST_VERSION}-bookworm AS build
+ARG AMQP_URI
+ARG LANGUAGE_PROCESSOR_API
+ARG MONGO_URI
+ARG QDRANT_URI
+ARG REDIS_URI
 ARG APP_NAME
-ENV LANGUAGE_PROCESSOR_API http://language-processor:8000
 WORKDIR /app
 COPY . .
 RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
