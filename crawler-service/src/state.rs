@@ -24,7 +24,7 @@ impl AppState {
         dotenv().ok();
         tracing_subscriber::registry()
             .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or("INFO".into()))
-            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::fmt::layer().without_time())
             .init();
 
         let cfg = Config::from_url(env!("REDIS_URI"));
@@ -61,7 +61,7 @@ impl AppState {
             redis_pool,
             reqwest_client,
             amqp_channel,
-            qdrant_client: Arc::new(init_qdrant().await.unwrap()),
+            qdrant_client: Arc::new(init_qdrant().await),
             mongo_client: init_mongo().await.unwrap(),
         }
     }

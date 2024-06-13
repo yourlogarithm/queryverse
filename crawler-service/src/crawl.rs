@@ -51,7 +51,7 @@ async fn get_content(url: url::Url, client: &reqwest::Client) -> anyhow::Result<
     Ok(Some(content))
 }
 
-#[tracing::instrument(skip(url, state), fields(url = %url.as_str()))]
+#[tracing::instrument(skip(state), fields(url = %url.as_str()))]
 async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<HashSet<url::Url>> {
     let content = if let Some(content) = get_content(url.clone(), &state.reqwest_client).await? {
         content
@@ -116,11 +116,11 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
             )
             .await
         {
-            Ok(update_result) => debug!("Updated document - {update_result:?}"),
+            Ok(_) => debug!("Updated document"),
             Err(e) => error!("Failed to update document - {e}"),
         }
         let point = PointStruct::new(
-            0,
+            uuid::Uuid::new_v4().to_string(),
             embedding,
             serde_json::json!({"sha256": hash}).try_into().unwrap(),
         );
@@ -137,7 +137,7 @@ async fn inner_crawl(url: url::Url, state: &state::AppState) -> anyhow::Result<H
 }
 
 #[axum::debug_handler]
-#[tracing::instrument(skip(url, state), fields(url = %url.as_str()))]
+#[tracing::instrument(skip(state))]
 pub async fn crawl(
     Path(url): Path<url::Url>,
     axum::extract::State(state): axum::extract::State<state::AppState>,

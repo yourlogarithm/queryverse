@@ -45,25 +45,30 @@ impl Model for Document {
 pub async fn init_mongo() -> Result<MongoClient, MongoError> {
     let client_options = ClientOptions::parse(env!("MONGO_URI")).await?;
     let client = MongoClient::with_options(client_options)?;
-    let db = client.database("documents");
+    let db = client.database("crawler");
     sync_indexes::<DocumentsCollConf>(&db).await?;
     Ok(client)
 }
 
-pub async fn init_qdrant() -> anyhow::Result<QdrantClient> {
-    let qdrant_client = QdrantClient::from_url(env!("QDRANT_URI")).build()?;
+pub async fn init_qdrant() -> QdrantClient {
+    let qdrant_client = QdrantClient::from_url(env!("QDRANT_URI"))
+        .build()
+        .unwrap();
+    if !qdrant_client.collection_exists("documents").await.unwrap() {
+        qdrant_client
+            .create_collection(&CreateCollection {
+                collection_name: "documents".to_string(),
+                vectors_config: Some(VectorsConfig {
+                    config: Some(QConfig::Params(VectorParams {
+                        size: 768,
+                        distance: Distance::Cosine.into(),
+                        ..Default::default()
+                    })),
+                }),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+    }
     qdrant_client
-        .create_collection(&CreateCollection {
-            collection_name: "documents".to_string(),
-            vectors_config: Some(VectorsConfig {
-                config: Some(QConfig::Params(VectorParams {
-                    size: 768,
-                    distance: Distance::Cosine.into(),
-                    ..Default::default()
-                })),
-            }),
-            ..Default::default()
-        })
-        .await?;
-    Ok(qdrant_client)
 }

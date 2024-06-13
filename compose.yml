@@ -7,7 +7,7 @@ services:
         - LANGUAGE_PROCESSOR_API=https://language-processor-api:8000
         - REDIS_URI=redis://redis:6379
         - AMQP_URI=amqp://rabbitmq:5672
-        - QDRANT_URI=https://qdrant:6333
+        - QDRANT_URI=http://qdrant:6334
         - MONGO_URI=mongodb://admin:password@mongodb:27017
     restart: always
     depends_on:
@@ -96,11 +96,12 @@ configs:
   qdrant_config:
     content: |
       log_level: INFO
-      service:
-        enable_tls: true
-      tls:
-        cert: /app/certificates/certificate.pem
-        key: /app/certificates/privatekey.pem
+      # service:
+      #   enable_tls: true
+      #   api_key: "my_secret"
+      # tls:
+      #   cert: /app/certificates/certificate.pem
+      #   key: /app/certificates/privatekey.pem
 
 volumes:
   certificates:

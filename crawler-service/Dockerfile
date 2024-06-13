@@ -9,8 +9,12 @@ ARG REDIS_URI
 ARG APP_NAME
 WORKDIR /app
 COPY . .
-RUN apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/*
-RUN cargo build --locked --release -p ${APP_NAME} && cp ./target/release/${APP_NAME} /bin/server
+RUN \
+    --mount=type=cache,target=/app/target/ \
+    --mount=type=cache,target=/usr/local/cargo/registry/ \
+    apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/* && \
+    cargo build --release --locked --bin ${APP_NAME} && \
+    cp target/release/${APP_NAME} /bin/app
 
 FROM debian:bookworm-slim AS final
 ARG APP_NAME
@@ -25,6 +29,6 @@ RUN adduser \
     appuser
 WORKDIR /app
 USER appuser
-COPY --from=build /bin/server /app/
+COPY --from=build /bin/app /app/server
 EXPOSE 8000
 CMD ["/app/server"]
