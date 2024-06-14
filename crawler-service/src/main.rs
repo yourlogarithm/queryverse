@@ -1,18 +1,18 @@
 #[macro_use]
 extern crate lazy_static;
 
-mod crawl;
+mod core;
 mod database;
 mod models;
 mod redis;
 mod robots;
+mod routes;
 mod state;
 
 use axum::{http::StatusCode, routing::get, Router};
-use axum_server::tls_rustls::RustlsConfig;
 use state::AppState;
 
-use std::{net::SocketAddr, path::PathBuf};
+use std::net::SocketAddr;
 use tracing::{info, warn};
 
 #[axum::debug_handler]
@@ -31,27 +31,18 @@ async fn fallback_route() -> (StatusCode, &'static str) {
 #[tokio::main]
 async fn main() {
     let state = AppState::new().await;
-
     let app = Router::new()
         .route("/", get(root))
         .nest(
             "/v1",
             Router::new()
-                .route("/url/:url", get(crawl::crawl))
+                .route("/crawl/:url", get(routes::crawl))
                 .with_state(state),
         )
         .fallback(fallback_route);
-
-    let config = RustlsConfig::from_pem_file(
-        PathBuf::from("certificates/certificate.pem"),
-        PathBuf::from("certificates/privatekey.pem"),
-    )
-    .await
-    .unwrap();
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
+    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     info!("Listening on {}", addr);
-    axum_server::bind_rustls(addr, config)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    axum::serve(listener, app).await.unwrap();
+    info!("Server stopped.");
 }

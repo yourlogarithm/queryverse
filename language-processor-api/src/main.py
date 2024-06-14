@@ -1,16 +1,11 @@
 import uvicorn
 from fastapi import FastAPI, Request, Response
-# from pydantic import PROTOBUF, BaseModel
-# from sentence_transformers import SentenceTransformer
-from transformers import AutoModel
+from sentence_transformers import SentenceTransformer
 from vector_pb2 import VectorResponse
 
-MODEL = AutoModel.from_pretrained('jinaai/jina-embeddings-v2-base-en', trust_remote_code=True)
+MODEL = SentenceTransformer('/app/gte-small')
 
 app = FastAPI()
-
-# class SimilarityQuery(BaseModel):
-
 
 @app.get("/")
 def root():
@@ -21,7 +16,7 @@ def root():
 async def embedding(request: Request):
     text = await request.body()
     text = text.decode("utf-8")
-    vector = MODEL.encode(text, max_length=8192)
+    vector = MODEL.encode(text)
     binary_response = VectorResponse(value=vector).SerializeToString()
     return Response(content=binary_response, media_type="application/octet-stream")
 
@@ -36,6 +31,4 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        ssl_certfile="certificates/certificate.pem",
-        ssl_keyfile="certificates/privatekey.pem",
     )

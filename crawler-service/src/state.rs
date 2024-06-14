@@ -9,6 +9,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use crate::database::{init_mongo, init_qdrant};
 
 pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
+pub const QUEUE: &str = "crawler";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -47,7 +48,7 @@ impl AppState {
 
         let _queue = amqp_channel
             .queue_declare(
-                "crawled_urls",
+                QUEUE,
                 QueueDeclareOptions {
                     durable: true,
                     ..QueueDeclareOptions::default()

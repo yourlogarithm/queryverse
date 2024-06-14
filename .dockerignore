@@ -1,2 +1,2 @@
 target/
-language-processor-api/**/__pycache__
+**/__pycache__

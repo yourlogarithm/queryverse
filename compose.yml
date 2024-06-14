@@ -1,24 +1,22 @@
 services:
-  crawler-service:
-    build:
-      context: .
-      dockerfile: crawler-service/Dockerfile
-      args:
-        - LANGUAGE_PROCESSOR_API=https://language-processor-api:8000
-        - REDIS_URI=redis://redis:6379
-        - AMQP_URI=amqp://rabbitmq:5672
-        - QDRANT_URI=http://qdrant:6334
-        - MONGO_URI=mongodb://admin:password@mongodb:27017
-    restart: always
-    depends_on:
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    ports:
-      - 8000:8000
-    volumes:
-      - certificates:/app/certificates
+  # crawler-service:
+  #   build:
+  #     context: .
+  #     dockerfile: crawler-service/Dockerfile
+  #     args:
+  #       - LANGUAGE_PROCESSOR_API=http://language-processor-api:8000
+  #       - REDIS_URI=redis://redis:6379
+  #       - AMQP_URI=amqp://rabbitmq:5672
+  #       - QDRANT_URI=http://qdrant:6334
+  #       - MONGO_URI=mongodb://admin:password@mongodb:27017
+  #   restart: always
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #     rabbitmq:
+  #       condition: service_healthy
+  #   ports:
+  #     - 8000:8000
 
   language-processor-api:
     build:
@@ -28,7 +26,7 @@ services:
     ports:
       - 8001:8000
     volumes:
-      - certificates:/app/certificates
+      - ./gte-small:/app/gte-small
 
   redis:
     image: redis:alpine
@@ -89,24 +87,8 @@ services:
     configs:
       - source: qdrant_config
         target: /qdrant/config/production.yaml
-    volumes:
-      - certificates:/app/certificates
 
 configs:
   qdrant_config:
     content: |
       log_level: INFO
-      # service:
-      #   enable_tls: true
-      #   api_key: "my_secret"
-      # tls:
-      #   cert: /app/certificates/certificate.pem
-      #   key: /app/certificates/privatekey.pem
-
-volumes:
-  certificates:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./certificates

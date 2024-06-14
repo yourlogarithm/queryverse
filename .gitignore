@@ -3,3 +3,4 @@
 certificates/
 .venv/
 **/__pycache__/
+gte-small/

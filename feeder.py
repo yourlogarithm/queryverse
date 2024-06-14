@@ -2,7 +2,8 @@ import aiohttp
 import asyncio
 import aio_pika
 import aio_pika.abc
-from urllib.parse import quote_from_bytes
+from edges_pb2 import EdgesMessage
+from urllib.parse import quote
 
 
 async def main():
@@ -10,17 +11,19 @@ async def main():
         "amqp://guest:guest@127.0.0.1/"
     )
     async with connection:
-        queue_name = "crawled_urls"
+        queue_name = "crawler"
         channel = await connection.channel()
         queue = await channel.get_queue(queue_name)
         async with queue.iterator() as queue_iter:
-            connector = aiohttp.TCPConnector(ssl=False)
-            async with aiohttp.ClientSession(connector=connector) as session:
+            async with aiohttp.ClientSession() as session:
                 async for message in queue_iter:
                     async with message.process():
-                        to_crawl = quote_from_bytes(message.body, safe='')
-                        async with session.get('https://localhost:8000/v1/url/' + quote_from_bytes(message.body)) as response:
-                            print(f"{response.status} - {to_crawl}")
+                        msg = EdgesMessage()
+                        msg.ParseFromString(message.body)
+                        for url in msg.urls:
+                            url = 'http://localhost:8000/v1/crawl/' + quote(url, safe='')
+                            async with session.get(url) as response:
+                                print(f"{response.status} - {url}")
 
 if __name__ == "__main__":
     asyncio.run(main())

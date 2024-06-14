@@ -11,6 +11,7 @@ use qdrant_client::{
     },
 };
 use serde::{Deserialize, Serialize};
+use bson::Uuid;
 
 pub struct DocumentsCollConf;
 
@@ -22,20 +23,30 @@ impl CollectionConfig for DocumentsCollConf {
     fn indexes() -> Indexes {
         Indexes::new()
             .with(Index::new(f!(url in Document)).with_option(IndexOption::Unique))
-            .with(Index::new(f!(date in Document)))
-            .with(Index::new(f!(visited in Document)))
+            .with(Index::new(f!(first in Document)))
+            .with(Index::new(f!(last in Document)))
             .with(Index::new(f!(sha256 in Document)))
     }
 }
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize)]
 pub struct Document {
     pub url: String,
     #[serde(with = "bson::serde_helpers::chrono_datetime_as_bson_datetime")]
-    pub date: DateTime<Utc>,
+    pub first: DateTime<Utc>,
     #[serde(with = "bson::serde_helpers::chrono_datetime_as_bson_datetime")]
-    pub visited: DateTime<Utc>,
+    pub last: DateTime<Utc>,
     pub sha256: String,
+    pub uuid: Uuid
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct UuidProjection {
+    pub uuid: Uuid
+}
+
+impl Model for UuidProjection {
+    type CollConf = DocumentsCollConf;
 }
 
 impl Model for Document {
@@ -51,16 +62,14 @@ pub async fn init_mongo() -> Result<MongoClient, MongoError> {
 }
 
 pub async fn init_qdrant() -> QdrantClient {
-    let qdrant_client = QdrantClient::from_url(env!("QDRANT_URI"))
-        .build()
-        .unwrap();
+    let qdrant_client = QdrantClient::from_url(env!("QDRANT_URI")).build().unwrap();
     if !qdrant_client.collection_exists("documents").await.unwrap() {
         qdrant_client
             .create_collection(&CreateCollection {
                 collection_name: "documents".to_string(),
                 vectors_config: Some(VectorsConfig {
                     config: Some(QConfig::Params(VectorParams {
-                        size: 768,
+                        size: 384,
                         distance: Distance::Cosine.into(),
                         ..Default::default()
                     })),
