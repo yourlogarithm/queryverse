@@ -13,6 +13,8 @@ use qdrant_client::{
 };
 use serde::{Deserialize, Serialize};
 
+pub const DATABASE: &str = "crawler";
+
 pub struct DocumentsCollConf;
 
 impl CollectionConfig for DocumentsCollConf {
@@ -56,7 +58,7 @@ impl Model for Document {
 pub async fn init_mongo() -> Result<MongoClient, MongoError> {
     let client_options = ClientOptions::parse(env!("MONGO_URI")).await?;
     let client = MongoClient::with_options(client_options)?;
-    let db = client.database("crawler");
+    let db = client.database(DATABASE);
     sync_indexes::<DocumentsCollConf>(&db).await?;
     Ok(client)
 }

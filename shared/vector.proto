@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-package vector;
-
-message VectorResponse {
-    repeated float value = 1;
-}

@@ -1,10 +1,8 @@
 ARG RUST_VERSION=1.78
-ARG APP_NAME=crawler-service
+ARG APP_NAME=selector-service
 FROM rust:${RUST_VERSION}-bookworm AS build
 ARG AMQP_URI
-ARG LANGUAGE_PROCESSOR_API
-ARG MONGO_URI
-ARG QDRANT_URI
+ARG CRAWLER_API
 ARG REDIS_URI
 ARG APP_NAME
 WORKDIR /app
@@ -12,7 +10,6 @@ COPY . .
 RUN \
     --mount=type=cache,target=/app/target/ \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
-    apt-get update && apt-get install -y protobuf-compiler && rm -rf /var/lib/apt/lists/* && \
     cargo build --release --locked --bin ${APP_NAME} && \
     cp target/release/${APP_NAME} /bin/app
 
@@ -29,6 +26,5 @@ RUN adduser \
     appuser
 WORKDIR /app
 USER appuser
-COPY --from=build /bin/app /app/server
-EXPOSE 8000
-CMD ["/app/server"]
+COPY --from=build /bin/app /app/listener
+CMD ["/app/listener"]

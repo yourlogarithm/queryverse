@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
-use deadpool_redis::{Config, Runtime};
+use deadpool_redis::Runtime;
 use dotenvy::dotenv;
+use lapin::{Connection, ConnectionProperties};
 use qdrant_client::client::QdrantClient;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -13,7 +14,7 @@ pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARG
 pub struct AppState {
     pub redis_pool: deadpool_redis::Pool,
     pub reqwest_client: reqwest::Client,
-    // pub amqp_channel: lapin::Channel,
+    pub amqp_channel: lapin::Channel,
     pub qdrant_client: Arc<QdrantClient>,
     pub mongo_client: mongodm::mongo::Client,
 }
@@ -26,19 +27,27 @@ impl AppState {
             .with(tracing_subscriber::fmt::layer().without_time())
             .init();
 
-        let cfg = Config::from_url(env!("REDIS_URI"));
+        let cfg = deadpool_redis::Config::from_url(env!("REDIS_URI"));
         let redis_pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
 
         let reqwest_client = reqwest::Client::builder()
             .user_agent(APP_USER_AGENT)
-            .danger_accept_invalid_certs(true)
             .build()
             .unwrap();
+
+        let options = ConnectionProperties::default()
+            .with_executor(tokio_executor_trait::Tokio::current())
+            .with_reactor(tokio_reactor_trait::Tokio);
+
+        let connection = Connection::connect(env!("AMQP_URI"), options)
+            .await
+            .unwrap();
+        let amqp_channel = connection.create_channel().await.unwrap();
 
         Self {
             redis_pool,
             reqwest_client,
-            // amqp_channel,
+            amqp_channel,
             qdrant_client: Arc::new(init_qdrant().await),
             mongo_client: init_mongo().await.unwrap(),
         }

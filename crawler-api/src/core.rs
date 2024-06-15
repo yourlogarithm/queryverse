@@ -2,20 +2,21 @@ use std::collections::HashSet;
 
 use anyhow::Context;
 use bson::{doc, Uuid};
+use lapin::{options::QueueDeclareOptions, types::FieldTable};
 use mongodm::{
     f,
     mongo::options::{Hint, ReturnDocument},
     operator::{Set, SetOnInsert},
     ToRepository,
 };
-use prost::Message;
 use qdrant_client::qdrant::PointStruct;
 use scraper::{Html, Selector};
+use serde_json::json;
 use tracing::{debug, error};
 
 use crate::{
-    database::{Document, UuidProjection},
-    models::VectorResponse,
+    database::{Document, UuidProjection, DATABASE},
+    redis::Key,
     state::AppState,
 };
 
@@ -27,12 +28,12 @@ lazy_static! {
 }
 
 #[tracing::instrument(skip(app_state), fields(url = %url.as_str()))]
-pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<Vec<String>> {
+pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<()> {
     let content = if let Some(content) = get_content(url.clone(), &app_state.reqwest_client).await?
     {
         content
     } else {
-        return Ok(Vec::new());
+        return Ok(());
     };
     debug!("Content length: {}", content.len());
     let document = Html::parse_document(&content);
@@ -43,24 +44,14 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<Vec<
         .join("\n");
     let body = WHITESPACES.replace_all(&body, "$1").to_string();
     debug!("Body length: {}", body.len());
+    let request = json!({"inputs": body, "truncate": true});
     let response = app_state
         .reqwest_client
-        .get(concat!(env!("LANGUAGE_PROCESSOR_API"), "/embedding"))
-        .body(body)
-        .header("Content-Type", "text/plain")
+        .post(concat!(env!("NLP_API"), "/embed"))
+        .json(&request)
         .send()
         .await
         .context("Embeddings request")?;
-    let links: HashSet<_> = document
-        .select(&HREF_SELECTOR)
-        .flat_map(|e| e.value().attr("href").map(|relative| url.join(relative)))
-        .flatten()
-        .map(|mut url| {
-            url.set_fragment(None);
-            url
-        })
-        .filter(|edge| edge != &url)
-        .collect();
     let status = response.status();
     if !status.is_success() {
         if let Ok(text) = response.text().await {
@@ -69,10 +60,14 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<Vec<
             error!("Failed to get embeddings - {status}");
         }
     } else {
-        let body = response.bytes().await.context("Embeddings response")?;
-        let embedding = VectorResponse::decode(body)
-            .context("Embeddings deserialization")?
-            .value;
+        let embeddings: Vec<f32> = response
+            .json::<Vec<Vec<f32>>>()
+            .await
+            .context("Embeddings response")?
+            .into_iter()
+            .flatten()
+            .collect();
+        debug!("Embeddings length: {}", embeddings.len());
         let hash = sha256::digest(&content);
         let options: mongodm::prelude::MongoFindOneAndUpdateOptions =
             mongodm::mongo::options::FindOneAndUpdateOptions::builder()
@@ -85,7 +80,7 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<Vec<
         let uuid = Uuid::new();
         let uuid = match app_state
             .mongo_client
-            .database("crawler")
+            .database(DATABASE)
             .repository::<UuidProjection>()
             .find_one_and_update(
                 doc! { f!(url in Document): url.as_str() },
@@ -115,13 +110,14 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<Vec<
         };
         let title = document
             .select(&TITLE_SELECTOR)
-            .next().map(|element| element.inner_html());
+            .next()
+            .map(|element| element.inner_html());
         let payload = if let Some(title) = title {
             serde_json::json!({"url": url, "title": title})
         } else {
             serde_json::json!({"url": url})
         };
-        let point = PointStruct::new(uuid.to_string(), embedding, payload.try_into().unwrap());
+        let point = PointStruct::new(uuid.to_string(), embeddings, payload.try_into().unwrap());
         match app_state
             .qdrant_client
             .upsert_points("documents", None, vec![point], None)
@@ -131,7 +127,43 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<Vec<
             Err(e) => error!("Failed to upsert embeddings - {e}"),
         }
     }
-    Ok(links.into_iter().map(|url| url.into()).collect())
+
+    let links: HashSet<_> = document
+        .select(&HREF_SELECTOR)
+        .flat_map(|e| e.value().attr("href").map(|relative| url.join(relative)))
+        .flatten()
+        .map(|mut url| {
+            url.set_fragment(None);
+            url
+        })
+        .filter(|edge| edge != &url)
+        .collect();
+    debug!("Edges: {}", links.len());
+
+    debug!("Publishing links");
+    let tasks = links.iter().filter_map(|link| {
+        if let Some(domain) = link.domain() {
+            Some(publish(domain, link, &app_state.amqp_channel))
+        } else {
+            None
+        }
+    });
+    if let Err(e) = futures::future::join_all(tasks)
+        .await
+        .into_iter()
+        .collect::<Result<(), _>>()
+    {
+        error!("Failed to publish links - {e:#}");
+    }
+
+    debug!("Cooldown");
+    if let Some(domain) = url.domain() {
+        if let Err(e) = cooldown(domain, &app_state.redis_pool).await {
+            error!("Failed to cooldown - {e:#}");
+        }
+    }
+
+    return Ok(());
 }
 
 #[tracing::instrument(skip(client), fields(url = %url.as_str()))]
@@ -160,4 +192,43 @@ async fn get_content(url: url::Url, client: &reqwest::Client) -> anyhow::Result<
         .await
         .context("GET Response")?;
     Ok(Some(content))
+}
+
+async fn publish(domain: &str, url: &url::Url, channel: &lapin::Channel) -> anyhow::Result<()> {
+    channel
+        .queue_declare(
+            domain,
+            QueueDeclareOptions {
+                durable: true,
+                ..Default::default()
+            },
+            FieldTable::default(),
+        )
+        .await
+        .context("queue declare")?;
+    channel
+        .basic_publish(
+            "",
+            domain,
+            Default::default(),
+            url.as_str().as_bytes(),
+            Default::default(),
+        )
+        .await
+        .context("basic publish")?
+        .await
+        .context("publish confirm")?;
+    Ok(())
+}
+
+async fn cooldown(domain: &str, pool: &deadpool_redis::Pool) -> anyhow::Result<()> {
+    let mut conn = pool.get().await.context("redis connection").unwrap();
+    let key = Key::Cooldown(domain);
+    deadpool_redis::redis::pipe()
+        .atomic()
+        .set(&key, true)
+        .expire(&key, 3)
+        .query_async(&mut conn)
+        .await
+        .context("Redis SET & EXPIRE")
 }

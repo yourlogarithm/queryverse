@@ -3,13 +3,12 @@ extern crate lazy_static;
 
 mod core;
 mod database;
-mod models;
 mod redis;
 mod robots;
 mod routes;
 mod state;
 
-use axum::{http::StatusCode, routing::get, Router};
+use axum::{http::StatusCode, routing::{get, post}, Router};
 use state::AppState;
 
 use std::net::SocketAddr;
@@ -36,7 +35,7 @@ async fn main() {
         .nest(
             "/v1",
             Router::new()
-                .route("/crawl/:url", get(routes::crawl))
+                .route("/crawl/:url", post(routes::crawl))
                 .with_state(state),
         )
         .fallback(fallback_route);

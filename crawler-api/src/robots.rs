@@ -12,7 +12,7 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
         .redis_pool
         .get()
         .await
-        .with_context(|| "Failed to establish redis connection")
+        .context("redis connection")
         .unwrap();
     let domain = url
         .domain()
@@ -21,7 +21,7 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
     let content = if let Some(content) = conn
         .get::<_, Option<String>>(&key)
         .await
-        .with_context(|| "Failed to GET from redis")?
+        .context("Redis GET")?
     {
         debug!("Using cached robots.txt for {domain}");
         content
@@ -31,17 +31,17 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
             .get(format!("https://{domain}/robots.txt"))
             .send()
             .await
-            .with_context(|| "Failed to GET robots.txt")?
+            .context("http GET")?
             .text()
             .await
-            .with_context(|| "Failed to read robots.txt")?;
+            .context("robots.txt content")?;
         deadpool_redis::redis::pipe()
             .atomic()
             .set(&key, &content)
             .expire(&key, 60 * 60 * 24 * 30)
             .query_async(&mut conn)
             .await
-            .with_context(|| "Failed to SET and EXPIRE robots.txt in redis")?;
+            .context("Redis SET & EXPIRE")?;
         debug!("Cached robots.txt for {domain}");
         content
     };

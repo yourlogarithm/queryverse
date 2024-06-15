@@ -1,24 +1,22 @@
 [package]
-name = "crawler-service"
+name = "crawler-api"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 anyhow = "1.0.81"
 axum = { version = "0.7.5", features = ["macros"] }
-bitcode = "0.6.0"
 bson = { version = "2.11.0", features = ["chrono-0_4"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 deadpool-redis = "0.15.1"
 dotenvy = "0.15.7"
 futures = "0.3.30"
+lapin = "2.3.4"
 lazy_static = "1.4.0"
 mongodm = "0.9.2"
-prost = "0.12.6"
-prost-types = "0.12.6"
 qdrant-client = "1.9.0"
 regex = "1.10.5"
-reqwest = "0.12.2"
+reqwest = { version = "0.12.2", features = ["json"] }
 robotstxt = "0.3.0"
 scraper = { version = "0.19.0", features = ["atomic"] }
 serde = { version = "1.0.197", features = ["derive"] }
@@ -31,6 +29,3 @@ tower-http = { version = "0.5.2", features = ["cors"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = { version = "2.5.0", features = ["serde"] }
-
-[build-dependencies]
-prost-build = "0.12.6"

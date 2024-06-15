@@ -1,39 +1,54 @@
 services:
-  # crawler-service:
-  #   build:
-  #     context: .
-  #     dockerfile: crawler-service/Dockerfile
-  #     args:
-  #       - LANGUAGE_PROCESSOR_API=http://language-processor-api:8000
-  #       - REDIS_URI=redis://redis:6379
-  #       - AMQP_URI=amqp://rabbitmq:5672
-  #       - QDRANT_URI=http://qdrant:6334
-  #       - MONGO_URI=mongodb://admin:password@mongodb:27017
-  #   restart: always
-  #   depends_on:
-  #     redis:
-  #       condition: service_healthy
-  #     rabbitmq:
-  #       condition: service_healthy
-  #   ports:
-  #     - 8000:8000
-
-  language-processor-api:
+  crawler-api:
     build:
       context: .
-      dockerfile: language-processor-api/Dockerfile
+      dockerfile: crawler-api/Dockerfile
+      args:
+        - NLP_API=http://nlp-api:8000
+        - REDIS_URI=redis://redis:6379
+        - AMQP_URI=amqp://rabbitmq:5672
+        - QDRANT_URI=http://qdrant:6334
+        - MONGO_URI=mongodb://admin:password@mongodb:27017
     restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     ports:
-      - 8001:8000
+      - 8000:8000
+
+  selector-service:
+    build:
+      context: .
+      dockerfile: selector-service/Dockerfile
+      args:
+        - CRAWLER_API=http://crawler-api:8000
+        - REDIS_URI=redis://redis:6379
+        - AMQP_URI=amqp://rabbitmq:5672
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - 8010:8000
+
+  nlp-api:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
+    ports:
+      - "8020:8000"
     volumes:
-      - ./gte-small:/app/gte-small
+      - ./data:/data
+    command: ["--model-id", "thenlper/gte-small", "--port", "8000", "--payload-limit", "0"]
 
   redis:
     image: redis:alpine
     restart: always
     ports:
       - 6379:6379
-    command: redis-server --save 20 1 --loglevel warning
+    command: redis-server --save 20 1 --loglevel warning --notify-keyspace-events KEA
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
 
