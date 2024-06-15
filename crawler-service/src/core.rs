@@ -26,9 +26,10 @@ lazy_static! {
     static ref TITLE_SELECTOR: Selector = Selector::parse("title").unwrap();
 }
 
-#[tracing::instrument(skip(state), fields(url = %url.as_str()))]
-pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<Vec<String>> {
-    let content = if let Some(content) = get_content(url.clone(), &state.reqwest_client).await? {
+#[tracing::instrument(skip(app_state), fields(url = %url.as_str()))]
+pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<Vec<String>> {
+    let content = if let Some(content) = get_content(url.clone(), &app_state.reqwest_client).await?
+    {
         content
     } else {
         return Ok(Vec::new());
@@ -42,7 +43,7 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<Vec<Stri
         .join("\n");
     let body = WHITESPACES.replace_all(&body, "$1").to_string();
     debug!("Body length: {}", body.len());
-    let response = state
+    let response = app_state
         .reqwest_client
         .get(concat!(env!("LANGUAGE_PROCESSOR_API"), "/embedding"))
         .body(body)
@@ -50,11 +51,14 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<Vec<Stri
         .send()
         .await
         .context("Embeddings request")?;
-    // TODO: Remove page refs
     let links: HashSet<_> = document
         .select(&HREF_SELECTOR)
         .flat_map(|e| e.value().attr("href").map(|relative| url.join(relative)))
         .flatten()
+        .map(|mut url| {
+            url.set_fragment(None);
+            url
+        })
         .filter(|edge| edge != &url)
         .collect();
     let status = response.status();
@@ -79,7 +83,7 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<Vec<Stri
                 .build();
         let t = chrono::Utc::now();
         let uuid = Uuid::new();
-        let uuid = match state
+        let uuid = match app_state
             .mongo_client
             .database("crawler")
             .repository::<UuidProjection>()
@@ -111,19 +115,14 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<Vec<Stri
         };
         let title = document
             .select(&TITLE_SELECTOR)
-            .next()
-            .and_then(|element| Some(element.inner_html()));
+            .next().map(|element| element.inner_html());
         let payload = if let Some(title) = title {
             serde_json::json!({"url": url, "title": title})
         } else {
             serde_json::json!({"url": url})
         };
-        let point = PointStruct::new(
-            uuid.to_string(),
-            embedding,
-            payload.try_into().unwrap(),
-        );
-        match state
+        let point = PointStruct::new(uuid.to_string(), embedding, payload.try_into().unwrap());
+        match app_state
             .qdrant_client
             .upsert_points("documents", None, vec![point], None)
             .await
@@ -135,8 +134,9 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<Vec<Stri
     Ok(links.into_iter().map(|url| url.into()).collect())
 }
 
-#[tracing::instrument(skip(client))]
+#[tracing::instrument(skip(client), fields(url = %url.as_str()))]
 async fn get_content(url: url::Url, client: &reqwest::Client) -> anyhow::Result<Option<String>> {
+    debug!("Sending HEAD request");
     let response = client
         .head(url.clone())
         .send()
@@ -150,6 +150,7 @@ async fn get_content(url: url::Url, client: &reqwest::Client) -> anyhow::Result<
             return Ok(None);
         }
     }
+    debug!("Sending GET request");
     let content = client
         .get(url)
         .send()

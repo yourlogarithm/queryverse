@@ -6,12 +6,12 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.81"
 axum = { version = "0.7.5", features = ["macros"] }
+bitcode = "0.6.0"
 bson = { version = "2.11.0", features = ["chrono-0_4"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 deadpool-redis = "0.15.1"
 dotenvy = "0.15.7"
 futures = "0.3.30"
-lapin = "2.3.1"
 lazy_static = "1.4.0"
 mongodm = "0.9.2"
 prost = "0.12.6"

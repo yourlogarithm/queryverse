@@ -1,7 +1,0 @@
-syntax = "proto3";
-
-package edges;
-
-message EdgesMessage {
-    repeated string urls = 1;
-}

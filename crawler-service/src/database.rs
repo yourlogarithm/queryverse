@@ -1,3 +1,4 @@
+use bson::Uuid;
 use chrono::{DateTime, Utc};
 use mongodm::f;
 use mongodm::mongo::{
@@ -11,7 +12,6 @@ use qdrant_client::{
     },
 };
 use serde::{Deserialize, Serialize};
-use bson::Uuid;
 
 pub struct DocumentsCollConf;
 
@@ -37,12 +37,12 @@ pub struct Document {
     #[serde(with = "bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub last: DateTime<Utc>,
     pub sha256: String,
-    pub uuid: Uuid
+    pub uuid: Uuid,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct UuidProjection {
-    pub uuid: Uuid
+    pub uuid: Uuid,
 }
 
 impl Model for UuidProjection {

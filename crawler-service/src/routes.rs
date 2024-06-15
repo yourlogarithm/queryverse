@@ -1,21 +1,20 @@
 use axum::extract::{Json, Path, State};
-use prost::Message;
 use reqwest::StatusCode;
 use tracing::{debug, error, info};
 
 use crate::{
     core::process,
-    models::{ApiResponse, EdgesMessage},
+    models::{ApiResponse, CrawlerResponse},
     robots::is_robots_allowed,
-    state::{AppState, QUEUE},
+    state::AppState,
 };
 
 #[axum::debug_handler]
-#[tracing::instrument(skip(app_state))]
+#[tracing::instrument(skip(app_state), fields(url = %url.as_str()))]
 pub async fn crawl(
     Path(url): Path<url::Url>,
     State(app_state): State<AppState>,
-) -> (StatusCode, Json<ApiResponse<()>>) {
+) -> (StatusCode, Json<ApiResponse<Vec<u8>>>) {
     debug!("Crawl request");
     match is_robots_allowed(&url, &app_state).await {
         Ok(true) => {
@@ -23,26 +22,10 @@ pub async fn crawl(
             match process(url.clone(), &app_state).await {
                 Ok(urls) => {
                     debug!("{} edges found", urls.len());
-                    let message = EdgesMessage { urls };
-                    if let Err(e) = app_state
-                        .amqp_channel
-                        .basic_publish(
-                            "",
-                            QUEUE,
-                            Default::default(),
-                            &message.encode_to_vec(),
-                            Default::default(),
-                        )
-                        .await
-                    {
-                        error!("Failed to publish edges - {e}");
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(ApiResponse::Err(e.to_string())),
-                        );
-                    }
+                    let response = CrawlerResponse::Crawled(urls);
+                    let encoded = bitcode::encode(&response);
                     info!("Crawled");
-                    (StatusCode::OK, Json(ApiResponse::Ok(())))
+                    (StatusCode::OK, Json(ApiResponse::Ok(encoded)))
                 }
                 Err(e) => {
                     error!("Failed to process - {e:#}");
@@ -55,7 +38,9 @@ pub async fn crawl(
         }
         Ok(false) => {
             info!("Not allowed to crawl");
-            (StatusCode::OK, Json(ApiResponse::Ok(())))
+            let response = CrawlerResponse::NotAllowed;
+            let encoded = bitcode::encode(&response);
+            (StatusCode::OK, Json(ApiResponse::Ok(encoded)))
         }
         Err(e) => {
             let msg = format!("Failed to check robots.txt - {e:#}");

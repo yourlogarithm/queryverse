@@ -2,20 +2,18 @@ use std::sync::Arc;
 
 use deadpool_redis::{Config, Runtime};
 use dotenvy::dotenv;
-use lapin::{options::QueueDeclareOptions, types::FieldTable, Connection, ConnectionProperties};
 use qdrant_client::client::QdrantClient;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::database::{init_mongo, init_qdrant};
 
 pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
-pub const QUEUE: &str = "crawler";
 
 #[derive(Clone)]
 pub struct AppState {
     pub redis_pool: deadpool_redis::Pool,
     pub reqwest_client: reqwest::Client,
-    pub amqp_channel: lapin::Channel,
+    // pub amqp_channel: lapin::Channel,
     pub qdrant_client: Arc<QdrantClient>,
     pub mongo_client: mongodm::mongo::Client,
 }
@@ -37,31 +35,10 @@ impl AppState {
             .build()
             .unwrap();
 
-        let options = ConnectionProperties::default()
-            .with_executor(tokio_executor_trait::Tokio::current())
-            .with_reactor(tokio_reactor_trait::Tokio);
-
-        let connection = Connection::connect(env!("AMQP_URI"), options)
-            .await
-            .unwrap();
-        let amqp_channel = connection.create_channel().await.unwrap();
-
-        let _queue = amqp_channel
-            .queue_declare(
-                QUEUE,
-                QueueDeclareOptions {
-                    durable: true,
-                    ..QueueDeclareOptions::default()
-                },
-                FieldTable::default(),
-            )
-            .await
-            .unwrap();
-
         Self {
             redis_pool,
             reqwest_client,
-            amqp_channel,
+            // amqp_channel,
             qdrant_client: Arc::new(init_qdrant().await),
             mongo_client: init_mongo().await.unwrap(),
         }
