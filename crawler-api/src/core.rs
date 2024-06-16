@@ -235,7 +235,7 @@ pub async fn cooldown(domain: &str, seconds: i64, client: &redis::Client) -> any
     let key = Key::Cooldown(domain);
     redis::pipe()
         .atomic()
-        .set(&key, true)
+        .set(&key, 1)
         .expire(&key, seconds)
         .query_async(&mut conn)
         .await

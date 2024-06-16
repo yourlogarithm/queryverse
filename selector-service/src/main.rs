@@ -115,7 +115,7 @@ async fn main() {
                 .iter()
                 .map(|queue| Key::Cooldown(&queue))
                 .collect();
-            let results: Vec<Option<bool>> = match conn.mget(&reset_keys).await {
+            let results: Vec<Option<u8>> = match conn.mget(&reset_keys).await {
                 Ok(results) => results,
                 Err(e) => {
                     error!("Failed to get keys - {e:#}");

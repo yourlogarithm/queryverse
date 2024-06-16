@@ -17,12 +17,12 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
         .ok_or_else(|| anyhow::anyhow!("Missing domain for {url}"))?;
     let key = Key::Robots(domain);
     if let Some(allowed) = conn
-        .get::<_, Option<bool>>(&key)
+        .get::<_, Option<u8>>(&key)
         .await
         .context("Redis GET")?
     {
         debug!("Using cached robots.txt for {domain}");
-        return Ok(allowed);
+        return Ok(allowed == 1);
     }
     let scheme = url.scheme();
     let robots_url = format!("{}://{}/robots.txt", scheme, domain);
@@ -40,7 +40,7 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
     let allowed = matcher.one_agent_allowed_by_robots(&content, APP_USER_AGENT, url.as_str());
     redis::pipe()
         .atomic()
-        .set(&key, allowed)
+        .set(&key, if allowed { 1 } else { 0 })
         .expire(&key, 60 * 60 * 24 * 30)
         .query_async(&mut conn)
         .await
