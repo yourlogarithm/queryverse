@@ -9,6 +9,7 @@ services:
         - AMQP_URI=amqp://rabbitmq:5672
         - QDRANT_URI=http://qdrant:6334
         - MONGO_URI=mongodb://admin:password@mongodb:27017
+        - RUST_LOG=${RUST_LOG}
     restart: always
     depends_on:
       redis:
@@ -26,6 +27,10 @@ services:
         - CRAWLER_API=http://crawler-api:8000
         - REDIS_URI=redis://redis:6379
         - AMQP_URI=amqp://rabbitmq:5672
+        - AMQP_USR=guest
+        - AMQP_PWD=guest
+        - RABBITMQ_MANAGEMENT_HOST=http://rabbitmq:15672/api
+        - RUST_LOG=${RUST_LOG}
     restart: always
     depends_on:
       redis:
@@ -38,17 +43,21 @@ services:
   nlp-api:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
     ports:
-      - "8020:8000"
+      - 8020-8030:8000
+    deploy:
+      mode: replicated
+      replicas: 10
+      endpoint_mode: vip
     volumes:
       - ./data:/data
-    command: ["--model-id", "thenlper/gte-small", "--port", "8000", "--payload-limit", "0"]
+    command: ["--model-id", "thenlper/gte-small", "--port", "8000", "--payload-limit", "0", "--max-concurrent-requests", "1024"]
 
   redis:
     image: redis:alpine
     restart: always
     ports:
       - 6379:6379
-    command: redis-server --save 20 1 --loglevel warning --notify-keyspace-events KEA
+    command: redis-server --save 20 1 --loglevel warning
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
 

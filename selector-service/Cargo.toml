@@ -17,3 +17,6 @@ redis = { version = "0.25.4", features = ["aio", "tokio-comp"] }
 futures = "0.3.30"
 uuid = { version = "1.8.0", features = ["fast-rng", "v4"] }
 urlencoding = "2.1.3"
+serde = { version = "1.0.203", features = ["derive"] }
+utils = { path = "../utils", features = ["redis"]}
+rand = "0.8.5"

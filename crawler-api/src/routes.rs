@@ -5,16 +5,30 @@ use reqwest::StatusCode;
 use tracing::{debug, error, info};
 
 use crate::{
-    core::process,
+    core::{cooldown, process},
     database::{Document, DATABASE},
     robots::is_robots_allowed,
     state::AppState,
 };
 
+const EXPIRATION: i64 = 5;
+
 #[axum::debug_handler]
 #[tracing::instrument(skip(app_state), fields(url = %url.as_str()))]
 pub async fn crawl(Path(url): Path<url::Url>, State(app_state): State<AppState>) -> StatusCode {
     debug!("Crawl request");
+
+    macro_rules! cooldown {
+        ($seconds:expr) => {
+            if let Some(domain) = url.domain() {
+                debug!("Cooldown");
+                if let Err(e) = cooldown(domain, $seconds, &app_state.redis_client).await {
+                    error!("Failed to cooldown - {e:#}");
+                }
+            }
+        };
+    }
+
     match is_robots_allowed(&url, &app_state).await {
         Ok(true) => {
             info!("Allowed to crawl");
@@ -37,30 +51,36 @@ pub async fn crawl(Path(url): Path<url::Url>, State(app_state): State<AppState>)
                 Ok(0) => (),
                 Ok(_) => {
                     info!("Already crawled");
+                    cooldown!(0);
                     return StatusCode::OK;
                 }
                 Err(e) => {
                     error!("Failed to check if already crawled - {e:#}");
+                    cooldown!(0);
                     return StatusCode::INTERNAL_SERVER_ERROR;
                 }
             }
             match process(url.clone(), &app_state).await {
                 Ok(_) => {
                     info!("Crawled");
+                    cooldown!(EXPIRATION);
                     StatusCode::ACCEPTED
                 }
                 Err(e) => {
                     error!("Failed to process - {e:#}");
+                    cooldown!(EXPIRATION);
                     StatusCode::INTERNAL_SERVER_ERROR
                 }
             }
         }
         Ok(false) => {
             info!("Not allowed to crawl");
+            cooldown!(0);
             StatusCode::OK
         }
         Err(e) => {
             error!("Failed to check robots.txt - {e:#}");
+            cooldown!(0);
             StatusCode::INTERNAL_SERVER_ERROR
         }
     }

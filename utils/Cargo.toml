@@ -1,0 +1,10 @@
+[package]
+name = "utils"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+redis = { version = "0.25.4", optional = true }
+
+[features]
+redis = ["dep:redis"]

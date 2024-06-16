@@ -16,9 +16,10 @@ use tracing::{debug, error};
 
 use crate::{
     database::{Document, UuidProjection, DATABASE},
-    redis::Key,
     state::AppState,
 };
+
+use utils::redis::Key;
 
 lazy_static! {
     static ref WHITESPACES: regex::Regex = regex::Regex::new(r"(\s)\s+").unwrap();
@@ -44,58 +45,46 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<()> 
         .join("\n");
     let body = WHITESPACES.replace_all(&body, "$1").to_string();
     debug!("Body length: {}", body.len());
-    let request = json!({"inputs": body, "truncate": true});
-    let response = app_state
-        .reqwest_client
-        .post(concat!(env!("NLP_API"), "/embed"))
-        .json(&request)
-        .send()
-        .await
-        .context("Embeddings request")?;
-    let status = response.status();
-    if !status.is_success() {
-        if let Ok(text) = response.text().await {
-            error!("Failed to get embeddings - {status} {text}");
-        } else {
-            error!("Failed to get embeddings - {status}");
+    let hash = sha256::digest(&content);
+    let uuid = Uuid::new();
+    let t = chrono::Utc::now();
+    let filter = doc! { f!(url in Document): url.as_str() };
+    let update = doc! {
+        SetOnInsert: {
+            f!(first in Document): mongodm::bson::Bson::DateTime(t.into()),
+            f!(uuid in Document): uuid,
+        },
+        Set: {
+            f!(sha256 in Document): &hash,
+            f!(last in Document): mongodm::bson::Bson::DateTime(t.into())
         }
-    } else {
-        let embeddings: Vec<f32> = response
-            .json::<Vec<Vec<f32>>>()
+    };
+    if body.is_empty() {
+        let options = mongodm::mongo::options::UpdateOptions::builder()
+            .hint(Hint::Keys(doc! { f!(url in Document): 1 }))
+            .upsert(true)
+            .build();
+        let result = app_state
+            .mongo_client
+            .database(DATABASE)
+            .repository::<Document>()
+            .update_one(filter, update, options)
             .await
-            .context("Embeddings response")?
-            .into_iter()
-            .flatten()
-            .collect();
-        debug!("Embeddings length: {}", embeddings.len());
-        let hash = sha256::digest(&content);
-        let options: mongodm::prelude::MongoFindOneAndUpdateOptions =
-            mongodm::mongo::options::FindOneAndUpdateOptions::builder()
-                .hint(Hint::Keys(doc! { f!(url in Document): 1 }))
-                .return_document(ReturnDocument::After)
-                .projection(doc! { f!(uuid in Document): 1 })
-                .upsert(true)
-                .build();
-        let t = chrono::Utc::now();
-        let uuid = Uuid::new();
+            .context("Failed to update or insert document")?;
+        debug!("Upserted document - {result:?}");
+    } else {
+        let options = mongodm::mongo::options::FindOneAndUpdateOptions::builder()
+            .hint(Hint::Keys(doc! { f!(url in Document): 1 }))
+            .return_document(ReturnDocument::After)
+            .projection(doc! { f!(uuid in Document): 1 })
+            .upsert(true)
+            .build();
+
         let uuid = match app_state
             .mongo_client
             .database(DATABASE)
             .repository::<UuidProjection>()
-            .find_one_and_update(
-                doc! { f!(url in Document): url.as_str() },
-                doc! {
-                    SetOnInsert: {
-                        f!(first in Document): mongodm::bson::Bson::DateTime(t.into()),
-                        f!(uuid in Document): uuid,
-                    },
-                    Set: {
-                        f!(sha256 in Document): &hash,
-                        f!(last in Document): mongodm::bson::Bson::DateTime(t.into())
-                    }
-                },
-                options,
-            )
+            .find_one_and_update(filter, update, options)
             .await
             .context("Failed to update or insert document")?
         {
@@ -108,23 +97,50 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<()> 
                 uuid
             }
         };
-        let title = document
-            .select(&TITLE_SELECTOR)
-            .next()
-            .map(|element| element.inner_html());
-        let payload = if let Some(title) = title {
-            serde_json::json!({"url": url, "title": title})
-        } else {
-            serde_json::json!({"url": url})
-        };
-        let point = PointStruct::new(uuid.to_string(), embeddings, payload.try_into().unwrap());
-        match app_state
-            .qdrant_client
-            .upsert_points("documents", None, vec![point], None)
+        
+        let request = json!({"inputs": body, "truncate": true});
+        let response = app_state
+            .reqwest_client
+            .post(concat!(env!("NLP_API"), "/embed"))
+            .json(&request)
+            .send()
             .await
-        {
-            Ok(info) => debug!("Upserted embeddings - {info:?}"),
-            Err(e) => error!("Failed to upsert embeddings - {e}"),
+            .context("Embeddings request")?;
+        let status = response.status();
+        if !status.is_success() {
+            if let Ok(text) = response.text().await {
+                error!("Failed to get embeddings - {status} {text}");
+            } else {
+                error!("Failed to get embeddings - {status}");
+            }
+        } else {
+            let embeddings: Vec<f32> = response
+                .json::<Vec<Vec<f32>>>()
+                .await
+                .context("Embeddings response")?
+                .into_iter()
+                .flatten()
+                .collect();
+            debug!("Embeddings length: {}", embeddings.len());
+
+            let title = document
+                .select(&TITLE_SELECTOR)
+                .next()
+                .map(|element| element.inner_html());
+            let payload = if let Some(title) = title {
+                serde_json::json!({"url": url, "title": title})
+            } else {
+                serde_json::json!({"url": url})
+            };
+            let point = PointStruct::new(uuid.to_string(), embeddings, payload.try_into().unwrap());
+            match app_state
+                .qdrant_client
+                .upsert_points("documents", None, vec![point], None)
+                .await
+            {
+                Ok(info) => debug!("Upserted embeddings - {info:?}"),
+                Err(e) => error!("Failed to upsert embeddings - {e}"),
+            }
         }
     }
 
@@ -148,22 +164,11 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<()> 
             None
         }
     });
-    if let Err(e) = futures::future::join_all(tasks)
+    futures::future::join_all(tasks)
         .await
         .into_iter()
         .collect::<Result<(), _>>()
-    {
-        error!("Failed to publish links - {e:#}");
-    }
-
-    debug!("Cooldown");
-    if let Some(domain) = url.domain() {
-        if let Err(e) = cooldown(domain, &app_state.redis_pool).await {
-            error!("Failed to cooldown - {e:#}");
-        }
-    }
-
-    return Ok(());
+        .context("Link publishing")
 }
 
 #[tracing::instrument(skip(client), fields(url = %url.as_str()))]
@@ -221,13 +226,17 @@ async fn publish(domain: &str, url: &url::Url, channel: &lapin::Channel) -> anyh
     Ok(())
 }
 
-async fn cooldown(domain: &str, pool: &deadpool_redis::Pool) -> anyhow::Result<()> {
-    let mut conn = pool.get().await.context("redis connection").unwrap();
+pub async fn cooldown(domain: &str, seconds: i64, client: &redis::Client) -> anyhow::Result<()> {
+    let mut conn = client
+        .get_multiplexed_async_connection()
+        .await
+        .context("redis connection")
+        .unwrap();
     let key = Key::Cooldown(domain);
-    deadpool_redis::redis::pipe()
+    redis::pipe()
         .atomic()
         .set(&key, true)
-        .expire(&key, 3)
+        .expire(&key, seconds)
         .query_async(&mut conn)
         .await
         .context("Redis SET & EXPIRE")

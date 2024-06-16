@@ -3,7 +3,6 @@ extern crate lazy_static;
 
 mod core;
 mod database;
-mod redis;
 mod robots;
 mod routes;
 mod state;

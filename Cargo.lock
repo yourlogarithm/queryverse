@@ -794,13 +794,13 @@ dependencies = [
  "axum 0.7.5",
  "bson",
  "chrono",
- "deadpool-redis",
  "dotenvy",
  "futures",
  "lapin",
  "lazy_static",
  "mongodm",
  "qdrant-client",
+ "redis",
  "regex",
  "reqwest",
  "robotstxt",
@@ -815,6 +815,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "utils",
 ]
 
 [[package]]
@@ -905,36 +906,6 @@ name = "data-encoding"
 version = "2.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
-
-[[package]]
-name = "deadpool"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6541a3916932fe57768d4be0b1ffb5ec7cbf74ca8c903fdfd5c0fe8aa958f0ed"
-dependencies = [
- "deadpool-runtime",
- "num_cpus",
- "tokio",
-]
-
-[[package]]
-name = "deadpool-redis"
-version = "0.15.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ff315fab2a7a42132352909afc81140d06b8bbfd1414b098ce278e3f95dd1b9"
-dependencies = [
- "deadpool",
- "redis",
-]
-
-[[package]]
-name = "deadpool-runtime"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
-dependencies = [
- "tokio",
-]
 
 [[package]]
 name = "der"
@@ -3176,14 +3147,17 @@ dependencies = [
  "dotenvy",
  "futures",
  "lapin",
+ "rand",
  "redis",
  "reqwest",
+ "serde",
  "tokio",
  "tokio-executor-trait",
  "tokio-reactor-trait",
  "tracing",
  "tracing-subscriber",
  "urlencoding",
+ "utils",
  "uuid",
 ]
 
@@ -4094,6 +4068,13 @@ name = "utf-8"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09cc8ee72d2a9becf2f2febe0205bbed8fc6615b7cb429ad062dc7b7ddd036a9"
+
+[[package]]
+name = "utils"
+version = "0.1.0"
+dependencies = [
+ "redis",
+]
 
 [[package]]
 name = "uuid"

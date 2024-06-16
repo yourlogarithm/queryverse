@@ -1,4 +1,4 @@
-use deadpool_redis::redis::ToRedisArgs;
+use redis::ToRedisArgs;
 
 pub enum Key<'a> {
     Robots(&'a str),
@@ -8,7 +8,7 @@ pub enum Key<'a> {
 impl<'a> ToRedisArgs for Key<'a> {
     fn write_redis_args<W>(&self, out: &mut W)
     where
-        W: ?Sized + deadpool_redis::redis::RedisWrite,
+        W: ?Sized + redis::RedisWrite,
     {
         match self {
             Key::Robots(domain) => out.write_arg_fmt(format!("r:{domain}")),

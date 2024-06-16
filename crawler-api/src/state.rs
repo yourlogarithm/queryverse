@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use deadpool_redis::Runtime;
 use dotenvy::dotenv;
 use lapin::{Connection, ConnectionProperties};
 use qdrant_client::client::QdrantClient;
@@ -12,7 +11,7 @@ pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARG
 
 #[derive(Clone)]
 pub struct AppState {
-    pub redis_pool: deadpool_redis::Pool,
+    pub redis_client: redis::Client,
     pub reqwest_client: reqwest::Client,
     pub amqp_channel: lapin::Channel,
     pub qdrant_client: Arc<QdrantClient>,
@@ -27,8 +26,7 @@ impl AppState {
             .with(tracing_subscriber::fmt::layer().without_time())
             .init();
 
-        let cfg = deadpool_redis::Config::from_url(env!("REDIS_URI"));
-        let redis_pool = cfg.create_pool(Some(Runtime::Tokio1)).unwrap();
+        let redis_client = redis::Client::open(env!("REDIS_URI")).unwrap();
 
         let reqwest_client = reqwest::Client::builder()
             .user_agent(APP_USER_AGENT)
@@ -45,7 +43,7 @@ impl AppState {
         let amqp_channel = connection.create_channel().await.unwrap();
 
         Self {
-            redis_pool,
+            redis_client,
             reqwest_client,
             amqp_channel,
             qdrant_client: Arc::new(init_qdrant().await),
