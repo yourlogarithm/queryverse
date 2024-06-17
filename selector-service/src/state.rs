@@ -1,5 +1,5 @@
 use dotenvy::dotenv;
-use lapin::{Connection, ConnectionProperties};
+use lapin::Connection;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Clone)]
@@ -21,11 +21,7 @@ impl AppState {
 
         let reqwest_client = reqwest::Client::builder().build().unwrap();
 
-        let options = ConnectionProperties::default()
-            .with_executor(tokio_executor_trait::Tokio::current())
-            .with_reactor(tokio_reactor_trait::Tokio);
-
-        let connection = Connection::connect(env!("AMQP_URI"), options)
+        let connection = Connection::connect(env!("AMQP_URI"), Default::default())
             .await
             .unwrap();
         let amqp_channel = connection.create_channel().await.unwrap();

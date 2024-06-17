@@ -101,7 +101,7 @@ pub async fn process(url: url::Url, app_state: &AppState) -> anyhow::Result<()> 
         let request = json!({"inputs": body, "truncate": true});
         let response = app_state
             .reqwest_client
-            .post(concat!(env!("NLP_API"), "/embed"))
+            .post(concat!(env!("TEXT_EMBEDDINGS_INFERENCE_API"), "/embed"))
             .json(&request)
             .send()
             .await

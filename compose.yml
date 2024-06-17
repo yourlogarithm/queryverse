@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: crawler-api/Dockerfile
       args:
-        - NLP_API=http://nlp-api:8000
+        - TEXT_EMBEDDINGS_INFERENCE_API=http://text-embeddings-inference-api:8000
         - REDIS_URI=redis://redis:6379
         - AMQP_URI=amqp://rabbitmq:5672
         - QDRANT_URI=http://qdrant:6334
@@ -40,7 +40,7 @@ services:
     ports:
       - 8010:8000
 
-  nlp-api:
+  text-embeddings-inference-api:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
     ports:
       - 8020-8030:8000
@@ -71,9 +71,12 @@ services:
       interval: 30s
       timeout: 30s
       retries: 3
+    volumes:
+      - ./data/rabbitmq/data:/var/lib/rabbitmq
+      - ./data/rabbitmq/log:/var/log/rabbitmq
 
   mongodb:
-    image: mongo
+    image: mongo:latest
     restart: always
     ports:
       - 27017:27017
@@ -85,9 +88,11 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - ./data/mongo:/data/db
 
   mongo-express:
-    image: mongo-express
+    image: mongo-express:latest
     restart: always
     ports:
       - 8081:8081
@@ -111,6 +116,8 @@ services:
     configs:
       - source: qdrant_config
         target: /qdrant/config/production.yaml
+    volumes:
+      - ./data/qdrant:/qdrant/storage
 
 configs:
   qdrant_config:
