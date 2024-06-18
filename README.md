@@ -1,7 +1,7 @@
-# Web Search Engine Project
+# Web Search Engine
 ## Overview
 
-This project is a web search engine implemented in Rust.
+Natural Language Processing powered Web Seach Engine.
 It leverages a stack consisting of:
 1. **RabbitMQ** - messaging
 2. **MongoDB** - storing metadata
