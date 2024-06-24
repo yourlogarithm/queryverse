@@ -1,6 +1,5 @@
-use dotenvy::dotenv;
 use lapin::Connection;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::debug;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -11,16 +10,13 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new() -> Self {
-        dotenv().ok();
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or("INFO".into()))
-            .with(tracing_subscriber::fmt::layer().without_time())
-            .init();
-
+        debug!("Connecting to Redis");
         let redis_client = redis::Client::open(env!("REDIS_URI")).unwrap();
 
+        debug!("Creating reqwest client");
         let reqwest_client = reqwest::Client::builder().build().unwrap();
 
+        debug!("Connecting to AMQP");
         let connection = Connection::connect(env!("AMQP_URI"), Default::default())
             .await
             .unwrap();

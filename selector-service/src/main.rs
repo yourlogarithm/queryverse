@@ -13,14 +13,16 @@ mod state;
 
 const MANAGEMENT_URL: &str = concat!(env!("RABBITMQ_MANAGEMENT_HOST"));
 
-#[tokio::main]
-async fn main() {
+
+async fn listen() {
     let app_state = state::AppState::new().await;
+    debug!("get_multiplexed_async_connection");
     let mut conn = app_state
         .redis_client
         .get_multiplexed_async_connection()
         .await
         .unwrap();
+    debug!("rng");
     let mut rng = rand::thread_rng();
     let endpoint = format!("{MANAGEMENT_URL}/queues");
     info!("Starting selector service");
@@ -96,4 +98,9 @@ async fn main() {
             error!("Failed to get queues - {}", response.status());
         }
     }
+}
+
+#[tokio::main]
+async fn main() {
+    utils::start(env!("CARGO_PKG_NAME"), Box::pin(listen())).await;
 }

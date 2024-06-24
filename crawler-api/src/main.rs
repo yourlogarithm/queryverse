@@ -7,7 +7,11 @@ mod robots;
 mod routes;
 mod state;
 
-use axum::{http::StatusCode, routing::{get, post}, Router};
+use axum::{
+    http::StatusCode,
+    routing::{get, post},
+    Router,
+};
 use state::AppState;
 
 use std::net::SocketAddr;
@@ -26,15 +30,16 @@ async fn fallback_route() -> (StatusCode, &'static str) {
     )
 }
 
-#[tokio::main]
-async fn main() {
+async fn serve() {
+    info!("Initializing server");
     let state = AppState::new().await;
     let app = Router::new()
         .route("/", get(root))
+        .route("/metrics", get(utils::metrics_handler))
         .nest(
             "/v1",
             Router::new()
-                .route("/crawl/:url", post(routes::crawl))
+                .route("/crawl", post(routes::crawl))
                 .with_state(state),
         )
         .fallback(fallback_route);
@@ -43,4 +48,9 @@ async fn main() {
     info!("Listening on {}", addr);
     axum::serve(listener, app).await.unwrap();
     info!("Server stopped.");
+}
+
+#[tokio::main]
+async fn main() {
+    utils::start(env!("CARGO_PKG_NAME"), Box::pin(serve())).await;
 }

@@ -12,6 +12,7 @@ use qdrant_client::{
     },
 };
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 pub const DATABASE: &str = "crawler";
 
@@ -56,16 +57,20 @@ impl Model for Document {
 }
 
 pub async fn init_mongo() -> Result<MongoClient, MongoError> {
+    debug!("Initializing MongoDB client");
     let client_options = ClientOptions::parse(env!("MONGO_URI")).await?;
     let client = MongoClient::with_options(client_options)?;
     let db = client.database(DATABASE);
     sync_indexes::<DocumentsCollConf>(&db).await?;
+    debug!("MongoDB client initialized");
     Ok(client)
 }
 
 pub async fn init_qdrant() -> QdrantClient {
+    debug!("Initializing Qdrant client");
     let qdrant_client = QdrantClient::from_url(env!("QDRANT_URI")).build().unwrap();
     if !qdrant_client.collection_exists("documents").await.unwrap() {
+        debug!("Creating Qdrant collection");
         qdrant_client
             .create_collection(&CreateCollection {
                 collection_name: "documents".to_string(),

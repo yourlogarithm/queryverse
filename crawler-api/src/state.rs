@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use dotenvy::dotenv;
 use lapin::{Connection, ConnectionProperties};
 use qdrant_client::client::QdrantClient;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing::debug;
 
 use crate::database::{init_mongo, init_qdrant};
 
@@ -20,19 +19,16 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new() -> Self {
-        dotenv().ok();
-        tracing_subscriber::registry()
-            .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or("INFO".into()))
-            .with(tracing_subscriber::fmt::layer().without_time())
-            .init();
-
+        debug!("Initializing Redis client");
         let redis_client = redis::Client::open(env!("REDIS_URI")).unwrap();
 
+        debug!("Initializing Reqwest client");
         let reqwest_client = reqwest::Client::builder()
             .user_agent(APP_USER_AGENT)
             .build()
             .unwrap();
 
+        debug!("Initializing AMQP channel");
         let options = ConnectionProperties::default()
             .with_executor(tokio_executor_trait::Tokio::current())
             .with_reactor(tokio_reactor_trait::Tokio);

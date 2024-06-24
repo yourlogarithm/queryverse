@@ -1,4 +1,4 @@
-use axum::extract::{Path, State};
+use axum::extract::State;
 use bson::doc;
 use mongodm::{f, operator::GreaterThan, ToRepository};
 use reqwest::StatusCode;
@@ -14,8 +14,15 @@ use crate::{
 const EXPIRATION: i64 = 5;
 
 #[axum::debug_handler]
-#[tracing::instrument(skip(app_state), fields(url = %url.as_str()))]
-pub async fn crawl(Path(url): Path<url::Url>, State(app_state): State<AppState>) -> StatusCode {
+#[tracing::instrument(skip(app_state))]
+pub async fn crawl(State(app_state): State<AppState>, url: String) -> StatusCode {
+    let url = match reqwest::Url::parse(&url) {
+        Err(e) => {
+            error!("Failed to parse URL - {e:#}");
+            return StatusCode::BAD_REQUEST;
+        }
+        Ok(url) => url,
+    };
     debug!("Crawl request");
 
     macro_rules! cooldown {
@@ -60,15 +67,15 @@ pub async fn crawl(Path(url): Path<url::Url>, State(app_state): State<AppState>)
                     return StatusCode::INTERNAL_SERVER_ERROR;
                 }
             }
-            match process(url.clone(), &app_state).await {
+            let process_result = process(url.clone(), &app_state).await;
+            cooldown!(EXPIRATION);
+            match process_result {
                 Ok(_) => {
                     info!("Crawled");
-                    cooldown!(EXPIRATION);
                     StatusCode::ACCEPTED
                 }
                 Err(e) => {
                     error!("Failed to process - {e:#}");
-                    cooldown!(EXPIRATION);
                     StatusCode::INTERNAL_SERVER_ERROR
                 }
             }

@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Context;
 use bson::{doc, Uuid};
-use lapin::{options::QueueDeclareOptions, types::FieldTable};
+use lapin::{options::QueueDeclareOptions, types::FieldTable, BasicProperties};
 use mongodm::{
     f,
     mongo::options::{Hint, ReturnDocument},
@@ -211,13 +211,14 @@ async fn publish(domain: &str, url: &url::Url, channel: &lapin::Channel) -> anyh
         )
         .await
         .context("queue declare")?;
+    let props = BasicProperties::default().with_delivery_mode(2);
     channel
         .basic_publish(
             "",
             domain,
             Default::default(),
             url.as_str().as_bytes(),
-            Default::default(),
+            props,
         )
         .await
         .context("basic publish")?

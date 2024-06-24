@@ -42,7 +42,7 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
         .atomic()
         .set(&key, if allowed { 1 } else { 0 })
         .expire(&key, 60 * 60 * 24 * 30)
-        .query_async(&mut conn)
+        .query_async::<_, ()>(&mut conn)
         .await
         .context("Redis SET & EXPIRE")?;
     debug!("Cached robots.txt for {domain}");
