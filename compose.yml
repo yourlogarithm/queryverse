@@ -3,51 +3,55 @@ services:
     build:
       context: .
       dockerfile: crawler-api/Dockerfile
-      args:
-        - TEXT_EMBEDDINGS_INFERENCE_API=http://text-embeddings-inference-api:8000
-        - JAEGER_HOST=jaeger:6831
-        - REDIS_URI=redis://redis:6379
-        - AMQP_URI=amqp://rabbitmq:5672
-        - QDRANT_URI=http://qdrant:6334
-        - MONGO_URI=mongodb://admin:password@mongodb:27017
     restart: always
+    ports:
+      - 8000:8000
+    expose:
+      - 8000
     depends_on:
       redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
     environment:
-      - RUST_LOG=${RUST_LOG}
-    ports:
-      - 8000:8000
+      - RUST_LOG=DEBUG
+      - QDRANT_URI=http://qdrant:6334
+      - MONGO_URI=mongodb://admin:password@mongodb:27017
+      - AMQP_URI=amqp://rabbitmq:5672
+      - REDIS_URI=redis://redis:6379
+      - JAEGER_HOST=jaeger:6831
+      - TEXT_EMBEDDINGS_INFERENCE_API=http://text-embeddings-inference-api:8000
 
   selector-service:
     build:
       context: .
       dockerfile: selector-service/Dockerfile
-      args:
-        - CRAWLER_API=http://crawler-api:8000
-        - REDIS_URI=redis://redis:6379
-        - AMQP_URI=amqp://rabbitmq:5672
-        - AMQP_USR=guest
-        - AMQP_PWD=guest
-        - JAEGER_HOST=jaeger:6831
-        - RABBITMQ_MANAGEMENT_HOST=http://rabbitmq:15672/api
     restart: always
+    ports:
+      - 8010:8000
+    expose:
+      - 8000
     depends_on:
       redis:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
     environment:
-      - RUST_LOG=${RUST_LOG}
-    ports:
-      - 8010:8000
+      - RUST_LOG=DEBUG
+      - CRAWLER_API=http://crawler-api:8000
+      - REDIS_URI=redis://redis:6379
+      - AMQP_URI=amqp://rabbitmq:5672
+      - AMQP_USR=guest
+      - AMQP_PWD=guest
+      - JAEGER_HOST=jaeger:6831
+      - RABBITMQ_MANAGEMENT_HOST=http://rabbitmq:15672/api
 
   text-embeddings-inference-api:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
     ports:
       - 8020-8030:8000
+    expose:
+      - 8000
     deploy:
       mode: replicated
       replicas: 10
@@ -73,6 +77,8 @@ services:
     restart: always
     ports:
       - 6379:6379
+    expose:
+      - 6379
     command: redis-server --save 20 1 --loglevel warning
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
@@ -82,6 +88,9 @@ services:
     ports:
       - 5672:5672
       - 15672:15672
+    expose:
+      - 5672
+      - 15672
     healthcheck:
       test: rabbitmq-diagnostics -q ping
       interval: 30s
@@ -96,6 +105,8 @@ services:
     restart: always
     ports:
       - 27017:27017
+    expose:
+      - 27017
     healthcheck:
       test: echo 'db.runCommand("ping")' | mongo admin -u admin -p password --quiet
       interval: 30s
@@ -112,6 +123,8 @@ services:
     restart: always
     ports:
       - 8081:8081
+    expose:
+      - 8081
     environment:
       ME_CONFIG_MONGODB_ADMINUSERNAME: admin
       ME_CONFIG_MONGODB_ADMINPASSWORD: password
@@ -133,26 +146,6 @@ services:
         target: /qdrant/config/production.yaml
     volumes:
       - ./data/qdrant:/qdrant/storage
-
-  prometheus:
-    image: prom/prometheus:latest
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-
-  jaeger:
-    image: jaegertracing/all-in-one:latest
-    ports:
-      - "6831:6831/udp"
-      - "6832:6832/udp"
-      - "5778:5778"
-      - "16686:16686"
-      - "14268:14268"
-      - "14250:14250"
-      - "9411:9411"
 
   grafana:
     image: grafana/grafana:latest
