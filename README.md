@@ -9,14 +9,17 @@ It leverages a stack consisting of:
 - **Qdrant** - Vector Search
 - **Tempo** - Tracing
 - **Grafana** - Monitoring
-- **[thenlper/gte-small](https://huggingface.co/thenlper/gte-small)** model - for generating textual embeddings out of page contents
+- **Text Embeddings Inference API** - Document Embeddings
 
-To run simply use docker compose:
+To start the application, simply run:
 ```sh
 docker compose up -d
 ```
 
 In order for the crawling to be triggered, an initial manual crawl request must be sent:
 ```sh
-curl -X "POST" "http://localhost:8000/v1/crawl/" -d "https://en.wikipedia.org/wiki/Main_Page"
+grpcurl -plaintext -d '{"url": "https://en.wikipedia.org/wiki/Main_Page"}' \
+    -proto proto/crawler.proto \
+    localhost:50051 \
+    crawler.Crawler/Crawl
 ```

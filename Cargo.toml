@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = ["crawler-api", "messaging-service", "selector-service", "utils"]
+members = ["crawler-service", "messaging-service", "selector-service", "utils"]

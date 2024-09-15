@@ -1,7 +1,11 @@
 ARG RUST_VERSION=1.78
-ARG APP_NAME=crawler-api
+ARG APP_NAME=messaging-service
+
 FROM rust:${RUST_VERSION}-bookworm AS build
 ARG APP_NAME
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY . .
 RUN \

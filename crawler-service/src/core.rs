@@ -8,7 +8,7 @@ use mongodm::{
     operator::{Set, SetOnInsert},
     ToRepository,
 };
-use qdrant_client::qdrant::{value::Kind, PointStruct, Value};
+use qdrant_client::qdrant::{value::Kind, PointStruct, UpsertPoints, Value};
 use scraper::{Html, Selector};
 
 use crate::{
@@ -129,10 +129,17 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
                     payload.insert("title", value!(title));
                 }
                 payload.insert("url", value!(url.to_string()));
-                let point = PointStruct::new(uuid.to_string(), embeddings, payload.into());
+                let point = PointStruct::new(uuid.to_string(), embeddings, payload);
+                let request = UpsertPoints { 
+                    collection_name: "documents".to_string(),
+                    wait: Some(false),
+                    points: vec![point],
+                    ordering: None,
+                    shard_key_selector: None,
+                };
                 match state
                     .qdrant_client
-                    .upsert_points("documents", None, vec![point], None)
+                    .upsert_points(request)
                     .await
                 {
                     Ok(info) => tracing::info!(operation_id = ?info.result.map(|r| r.operation_id), "Upserted embeddings"),

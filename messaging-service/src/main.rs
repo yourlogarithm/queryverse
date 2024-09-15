@@ -39,7 +39,9 @@ impl Messaging for MessagingService {
     ) -> Result<Response<()>, Status> {
         let PublishRequest { payloads } = request.into_inner();
         let mut map = self.queues.lock().await;
+        tracing::info!("Publishing {} URLs", payloads.len());
         for payload in payloads {
+            tracing::debug!(domain = %payload.queue, url = %payload.message, "Adding URL to queue");
             let entry = map.entry(payload.queue).or_default();
             entry.add(payload.message);
             self.notifier.notify_one();
@@ -48,6 +50,7 @@ impl Messaging for MessagingService {
     }
 
     async fn subscribe(&self, _: Request<()>) -> Result<Response<Self::SubscribeStream>, Status> {
+        tracing::info!("New subscription request received");
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let queues = self.queues.clone();
         let redis_client = self.redis_client.clone();
@@ -58,6 +61,7 @@ impl Messaging for MessagingService {
                 if let Err(e) = consume(&queues, &tx, &redis_client).await {
                     tracing::error!(error = %e.error(), "Failed to consume");
                     if let Some((domain, url)) = e.resend() {
+                        tracing::warn!(domain = %domain, url = %url, "Resending URL due to consumption failure");
                         let mut map = queues.lock().await;
                         map.entry(domain).or_default().add(url);
                         notifier.notify_one();
@@ -107,6 +111,7 @@ async fn consume(
         .keys()
         .map(|name| Key::Cooldown(name.as_str()))
         .collect();
+    tracing::debug!(key_count = keys.len(), "Checking cooldown for queues");
     let mut conn = redis_client
         .get_multiplexed_tokio_connection()
         .await
@@ -129,21 +134,25 @@ async fn consume(
     if let Some((domain, queue)) = entry {
         let domain = domain.to_owned();
         let Some(url) = queue.pop() else {
+            tracing::info!(domain = %domain, "Queue emptied, removing domain");
             map.remove(&domain);
             return Ok(());
         };
         if queue.is_empty() {
+            tracing::info!(domain = %domain, "Queue emptied, removing domain");
             map.remove(&domain);
         }
         drop(map);
         if let Err(e) = cooldown(&domain, &mut conn).await {
             tracing::error!(error = %e, domain = %domain, "Failed to set cooldown");
         }
-        tx.send(Ok(Url { url }))
+        tracing::debug!(domain = %domain, "Sending URL to subscriber");
+        tx.send(Ok(Url { url: url.clone() }))
             .await
             .map_err(|error| ConsumeErrorKind::SendError { domain, error })?;
         Ok(())
     } else {
+        tracing::debug!("No eligible URLs to consume");
         Ok(())
     }
 }
@@ -154,12 +163,16 @@ struct AppConfig {
 }
 
 async fn serve() {
+    tracing::info!("Setting up health router");
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
         .set_serving::<MessagingServer<MessagingService>>()
         .await;
+
+    tracing::info!("Loading environment variables");
     let env = Environment::default().ignore_empty(true);
 
+    tracing::info!("Building AppConfig");
     let config = Config::builder()
         .add_source(env)
         .build()
@@ -169,22 +182,27 @@ async fn serve() {
         .try_deserialize()
         .expect("Failed to deserialize configuration");
 
-    let addr = "0.0.0.0:50051".parse().unwrap();
     let service = MessagingService {
         queues: Arc::new(Mutex::new(HashMap::new())),
         redis_client: redis::Client::open(app_config.redis_uri).unwrap(),
         notifier: Arc::new(tokio::sync::Notify::new()),
     };
+
+    let addr = "0.0.0.0:50051".parse().unwrap();
+    tracing::info!(address = %addr, "Server listening");
     Server::builder()
         .add_service(health_service)
         .add_service(MessagingServer::new(service))
         .serve(addr)
         .await
-        .unwrap();
+        .unwrap_or_else(|e| {
+            tracing::error!(error = %e, "Server failed to start");
+        });
 }
 
 async fn cooldown(domain: &str, conn: &mut MultiplexedConnection) -> Result<(), RedisError> {
     let key = Key::Cooldown(domain);
+    tracing::debug!(domain = %domain, "Setting cooldown");
     redis::pipe()
         .atomic()
         .set(&key, 1)

@@ -4,18 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.38.0", features = ["full"] }
-tracing = "0.1.40"
-tokio-executor-trait = "2.1.1"
-tokio-reactor-trait = "1.1.0"
-anyhow = "1.0.86"
-futures = "0.3.30"
-uuid = { version = "1.8.0", features = ["fast-rng", "v4"] }
-serde = { version = "1.0.203", features = ["derive"] }
-utils = { path = "../utils", features = ["redis"]}
-config = "0.14.0"
-tonic = "0.12.2"
-prost = "0.13.2"
+tokio = { version = "1.38", features = ["full"] }
+tracing = "0.1"
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+utils = { path = "../utils" }
+config = "0.14"
+tonic = "0.12"
+prost = "0.13"
 
 [build-dependencies]
-tonic-build = "0.12.2"
+tonic-build = "0.12"

@@ -5,11 +5,10 @@ use mongodm::mongo::{
     bson::doc, error::Error as MongoError, options::ClientOptions, Client as MongoClient,
 };
 use mongodm::{sync_indexes, CollectionConfig, Index, IndexOption, Indexes, Model};
+use qdrant_client::qdrant::CreateCollectionBuilder;
 use qdrant_client::{
-    client::QdrantClient,
-    qdrant::{
-        vectors_config::Config as QConfig, CreateCollection, Distance, VectorParams, VectorsConfig,
-    },
+    qdrant::{vectors_config::Config as QConfig, Distance, VectorParams, VectorsConfig},
+    Qdrant,
 };
 use serde::{Deserialize, Serialize};
 
@@ -64,23 +63,23 @@ pub async fn init_mongo(uri: &str) -> Result<MongoClient, MongoError> {
     Ok(client)
 }
 
-pub async fn init_qdrant(uri: &str) -> QdrantClient {
+pub async fn init_qdrant(uri: &str) -> Qdrant {
     tracing::info!("Initializing Qdrant client");
-    let qdrant_client = QdrantClient::from_url(uri).build().unwrap();
+    let qdrant_client = Qdrant::from_url(uri).build().unwrap();
     if !qdrant_client.collection_exists("documents").await.unwrap() {
         tracing::info!("Creating Qdrant collection");
         qdrant_client
-            .create_collection(&CreateCollection {
-                collection_name: "documents".to_string(),
-                vectors_config: Some(VectorsConfig {
-                    config: Some(QConfig::Params(VectorParams {
-                        size: 384,
-                        distance: Distance::Cosine.into(),
-                        ..Default::default()
-                    })),
-                }),
-                ..Default::default()
-            })
+            .create_collection(
+                CreateCollectionBuilder::new("documents")
+                    .vectors_config(VectorsConfig {
+                        config: Some(QConfig::Params(VectorParams {
+                            size: 384,
+                            distance: Distance::Cosine.into(),
+                            ..Default::default()
+                        })),
+                    })
+                    .build(),
+            )
             .await
             .unwrap();
     }

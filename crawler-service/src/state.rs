@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use config::{Config, Environment};
-use qdrant_client::client::QdrantClient;
+use qdrant_client::Qdrant;
 use serde::Deserialize;
 
 use crate::{
@@ -15,7 +15,7 @@ pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARG
 pub struct AppState {
     pub redis_client: redis::Client,
     pub reqwest_client: reqwest::Client,
-    pub qdrant_client: Arc<QdrantClient>,
+    pub qdrant_client: Arc<Qdrant>,
     pub mongo_client: mongodm::mongo::Client,
     pub tei_client: EmbedClient<tonic::transport::Channel>,
     pub messaging_client: MessagingClient<tonic::transport::Channel>,

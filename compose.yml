@@ -1,13 +1,13 @@
 x-common-env: &common-env
-  RUST_LOG: DEBUG
+  RUST_LOG: INFO
   LOKI_URL: http://loki:3100
   OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
 
 services:
-  crawler-api:
+  crawler-service:
     build:
       context: .
-      dockerfile: crawler-api/Dockerfile
+      dockerfile: crawler-service/Dockerfile
     restart: always
     ports:
       - 50051:50051
@@ -21,7 +21,8 @@ services:
       REDIS_URI: redis://redis:6379
       QDRANT_URI: http://qdrant:6334
       MONGO_URI: mongodb://admin:password@mongodb:27017
-      TEI_URI: http://text-embeddings-inference-api:8000
+      TEI_URI: grpc://text-embeddings-inference-api:8000
+      MESSAGING_URI: grpc://messaging-service:50051
 
   selector-service:
     build:
@@ -30,8 +31,8 @@ services:
     restart: always
     environment:
       <<: *common-env
-      CRAWLER_URI: http://crawler-api:8000
-      MESSAGING_URI: http://messaging-service:8000
+      CRAWLER_URI: grpc://crawler-service:50051
+      MESSAGING_URI: grpc://messaging-service:50051
 
   messaging-service:
     build:
@@ -39,7 +40,7 @@ services:
       dockerfile: messaging-service/Dockerfile
     restart: always
     ports:
-      - 50051:50051
+      - 50052:50051
     depends_on:
       redis:
         condition: service_healthy
@@ -50,21 +51,21 @@ services:
       REDIS_URI: redis://redis:6379
 
   text-embeddings-inference-api:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest-grpc
     ports:
-      - 8020-8024:8000
+      - 8000:8000
     expose:
       - 8000
-    deploy:
-      mode: replicated
-      replicas: 5
-      endpoint_mode: vip
+    # deploy:
+    #   mode: replicated
+    #   replicas: 5
+    #   endpoint_mode: vip
     volumes:
       - ./data:/data
     command:
       [
         "--model-id",
-        "thenlper/gte-small",
+        "BAAI/bge-m3",
         "--port",
         "8000",
         "--otlp-endpoint",

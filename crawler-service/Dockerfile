@@ -1,5 +1,5 @@
 ARG RUST_VERSION=1.78
-ARG APP_NAME=selector-service
+ARG APP_NAME=crawler-service
 FROM rust:${RUST_VERSION}-bookworm AS build
 ARG APP_NAME
 RUN apt-get update && apt-get install -y \
@@ -26,5 +26,6 @@ RUN adduser \
     appuser
 WORKDIR /app
 USER appuser
-COPY --from=build /bin/app /app/listener
-CMD ["/app/listener"]
+COPY --from=build /bin/app /app/server
+EXPOSE 8000
+CMD ["/app/server"]
