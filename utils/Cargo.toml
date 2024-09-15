@@ -4,20 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-redis = { version = "0.25.4", optional = true }
-opentelemetry = "0.23.0"
-opentelemetry-jaeger = "0.22.0"
-opentelemetry-jaeger-propagator = "0.2.0"
-opentelemetry-otlp = "0.16.0"
-opentelemetry-prometheus = "0.16.0"
-opentelemetry-stdout = "0.4.0"
-opentelemetry_sdk = "0.23.0"
-prometheus = "0.13.4"
+redis = { version = "0.27", optional = true }
+opentelemetry = "0.25"
+opentelemetry-otlp = { version = "0.25", features = ["grpc-tonic"] }
+opentelemetry-stdout = "0.25"
 tracing = "0.1.40"
-tracing-opentelemetry = "0.24.0"
+tracing-opentelemetry = "0.26"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tokio = { version = "1.38.0", features = ["full"] }
 futures = "0.3.30"
+tracing-loki = "0.2.5"
+opentelemetry_sdk = { version = "0.25.0", features = ["rt-tokio"] }
 
 
 [features]

@@ -1,10 +1,13 @@
 use std::sync::Arc;
 
-use lapin::{Connection, ConnectionProperties};
+use config::{Config, Environment};
 use qdrant_client::client::QdrantClient;
-use tracing::debug;
+use serde::Deserialize;
 
-use crate::database::{init_mongo, init_qdrant};
+use crate::{
+    database::{init_mongo, init_qdrant},
+    proto::{embed_client::EmbedClient, messaging_client::MessagingClient},
+};
 
 pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
@@ -12,38 +15,55 @@ pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARG
 pub struct AppState {
     pub redis_client: redis::Client,
     pub reqwest_client: reqwest::Client,
-    pub amqp_channel: lapin::Channel,
     pub qdrant_client: Arc<QdrantClient>,
     pub mongo_client: mongodm::mongo::Client,
+    pub tei_client: EmbedClient<tonic::transport::Channel>,
+    pub messaging_client: MessagingClient<tonic::transport::Channel>,
+}
+
+#[derive(Deserialize)]
+struct AppConfig {
+    pub redis_uri: String,
+    pub qdrant_uri: String,
+    pub mongo_uri: String,
+    pub tei_uri: String,
+    pub messaging_uri: String,
 }
 
 impl AppState {
     pub async fn new() -> Self {
-        debug!("Initializing Redis client");
-        let redis_client = redis::Client::open(env!("REDIS_URI")).unwrap();
+        let env = Environment::default().ignore_empty(true);
 
-        debug!("Initializing Reqwest client");
+        let config = Config::builder()
+            .add_source(env)
+            .build()
+            .expect("Failed to build configuration");
+
+        let app_config: AppConfig = config
+            .try_deserialize()
+            .expect("Failed to deserialize configuration");
+
+        tracing::info!("Initializing Redis client");
+        let redis_client = redis::Client::open(app_config.redis_uri).unwrap();
+
+        tracing::info!("Initializing Reqwest client");
         let reqwest_client = reqwest::Client::builder()
             .user_agent(APP_USER_AGENT)
             .build()
             .unwrap();
 
-        debug!("Initializing AMQP channel");
-        let options = ConnectionProperties::default()
-            .with_executor(tokio_executor_trait::Tokio::current())
-            .with_reactor(tokio_reactor_trait::Tokio);
-
-        let connection = Connection::connect(env!("AMQP_URI"), options)
+        let tei_client = EmbedClient::connect(app_config.tei_uri).await.unwrap();
+        let messaging_client = MessagingClient::connect(app_config.messaging_uri)
             .await
             .unwrap();
-        let amqp_channel = connection.create_channel().await.unwrap();
 
         Self {
             redis_client,
             reqwest_client,
-            amqp_channel,
-            qdrant_client: Arc::new(init_qdrant().await),
-            mongo_client: init_mongo().await.unwrap(),
+            qdrant_client: Arc::new(init_qdrant(&app_config.qdrant_uri).await),
+            mongo_client: init_mongo(&app_config.mongo_uri).await.unwrap(),
+            tei_client,
+            messaging_client,
         }
     }
 }

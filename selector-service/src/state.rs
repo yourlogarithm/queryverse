@@ -1,31 +1,46 @@
-use lapin::Connection;
-use tracing::debug;
+use config::{Config, Environment};
+use serde::Deserialize;
+
+use crate::proto::{crawler_client::CrawlerClient, messaging_client::MessagingClient};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub redis_client: redis::Client,
-    pub reqwest_client: reqwest::Client,
-    pub amqp_channel: lapin::Channel,
+    pub crawler_client: CrawlerClient<tonic::transport::Channel>,
+    pub messaging_client: MessagingClient<tonic::transport::Channel>,
+}
+
+#[derive(Deserialize)]
+struct AppConfig {
+    pub crawler_uri: String,
+    pub messaging_uri: String,
 }
 
 impl AppState {
     pub async fn new() -> Self {
-        debug!("Connecting to Redis");
-        let redis_client = redis::Client::open(env!("REDIS_URI")).unwrap();
+        let env = Environment::default().ignore_empty(true);
 
-        debug!("Creating reqwest client");
-        let reqwest_client = reqwest::Client::builder().build().unwrap();
+        let config = Config::builder()
+            .add_source(env)
+            .build()
+            .expect("Failed to build configuration");
 
-        debug!("Connecting to AMQP");
-        let connection = Connection::connect(env!("AMQP_URI"), Default::default())
+        let app_config: AppConfig = config
+            .try_deserialize()
+            .expect("Failed to deserialize configuration");
+
+        tracing::info!("Connected to Crawler Service");
+        let crawler_client = CrawlerClient::connect(app_config.crawler_uri)
             .await
             .unwrap();
-        let amqp_channel = connection.create_channel().await.unwrap();
+
+        tracing::info!("Connected to Messaging Service");
+        let messaging_client = MessagingClient::connect(app_config.messaging_uri)
+            .await
+            .unwrap();
 
         Self {
-            redis_client,
-            reqwest_client,
-            amqp_channel,
+            crawler_client,
+            messaging_client,
         }
     }
 }

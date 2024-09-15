@@ -1,53 +1,120 @@
-#[macro_use]
-extern crate lazy_static;
-
 mod core;
 mod database;
 mod robots;
-mod routes;
 mod state;
 
-use axum::{
-    http::StatusCode,
-    routing::{get, post},
-    Router,
+use bson::doc;
+use mongodm::{f, prelude::GreaterThan, ToRepository};
+use proto::{
+    crawler_server::{Crawler, CrawlerServer},
+    CrawlRequest,
 };
-use state::AppState;
+use tonic::{transport::Server, Code, Request, Response, Status};
 
-use std::net::SocketAddr;
-use tracing::{info, warn};
+use crate::{
+    core::process,
+    database::{Document, DATABASE},
+    robots::is_robots_allowed,
+    state::AppState,
+};
 
-#[axum::debug_handler]
-async fn root() -> StatusCode {
-    StatusCode::OK
+mod proto {
+    tonic::include_proto!("crawler");
+    tonic::include_proto!("tei.v1");
+    tonic::include_proto!("messaging");
 }
 
-async fn fallback_route() -> (StatusCode, &'static str) {
-    warn!("Invalid route accessed");
-    (
-        StatusCode::NOT_FOUND,
-        "The requested resource was not found",
-    )
+struct CrawlerService {
+    state: AppState,
+}
+
+#[tonic::async_trait]
+impl Crawler for CrawlerService {
+    async fn crawl(&self, request: Request<CrawlRequest>) -> Result<Response<()>, Status> {
+        let CrawlRequest { url } = request.into_inner();
+        let url = match reqwest::Url::parse(&url) {
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to parse URL");
+                return Err(Status::new(Code::InvalidArgument, e.to_string()));
+            }
+            Ok(url) => url,
+        };
+        tracing::info!(url = %url, "Received crawl request");
+
+        match is_robots_allowed(&url, &self.state).await {
+            Ok(true) => {
+                tracing::info!(url = %url, "Robots.txt allows crawling");
+                let repo = self
+                    .state
+                    .mongo_client
+                    .database(DATABASE)
+                    .repository::<Document>();
+                let count_options = mongodm::mongo::options::CountOptions::builder()
+                    .hint(mongodm::mongo::options::Hint::Keys(
+                        doc! {f!(url in Document): 1},
+                    ))
+                    .limit(1)
+                    .build();
+                let past = chrono::Utc::now() - chrono::Duration::hours(1);
+                let filter = doc! {
+                    f!(url in Document): url.as_str(),
+                    f!(last in Document): { GreaterThan: past }
+                };
+                match repo
+                    .count_documents(filter)
+                    .with_options(count_options)
+                    .await
+                {
+                    Ok(0) => (),
+                    Ok(_) => {
+                        tracing::info!(url = %url, "URL already crawled within the last hour");
+                        return Ok(Response::new(()));
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, url = %url, "Failed to check if URL was already crawled");
+                        return Err(Status::new(Code::Internal, e.to_string()));
+                    }
+                }
+                let process_result = process(url.clone(), &self.state).await;
+                match process_result {
+                    Ok(_) => {
+                        tracing::info!(url = %url, "Successfully crawled URL");
+                        Ok(Response::new(()))
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, url = %url, "Failed to process URL");
+                        Err(Status::new(Code::Internal, e.to_string()))
+                    }
+                }
+            }
+            Ok(false) => {
+                tracing::info!(url = %url, "Robots.txt disallows crawling");
+                Ok(Response::new(()))
+            }
+            Err(e) => {
+                tracing::error!(error = %e, url = %url, "Failed to check robots.txt");
+                Err(Status::new(Code::Internal, e.to_string()))
+            }
+        }
+    }
 }
 
 async fn serve() {
-    info!("Initializing server");
+    let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+    health_reporter
+        .set_serving::<CrawlerServer<CrawlerService>>()
+        .await;
+
     let state = AppState::new().await;
-    let app = Router::new()
-        .route("/", get(root))
-        .route("/metrics", get(utils::metrics_handler))
-        .nest(
-            "/v1",
-            Router::new()
-                .route("/crawl", post(routes::crawl))
-                .with_state(state),
-        )
-        .fallback(fallback_route);
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    info!("Listening on {}", addr);
-    axum::serve(listener, app).await.unwrap();
-    info!("Server stopped.");
+    let addr = "0.0.0.0:50051".parse().unwrap();
+    let crawler = CrawlerService { state };
+    let server = CrawlerServer::new(crawler);
+    Server::builder()
+        .add_service(health_service)
+        .add_service(server)
+        .serve(addr)
+        .await
+        .unwrap();
 }
 
 #[tokio::main]

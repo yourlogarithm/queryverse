@@ -1,3 +1,8 @@
+x-common-env: &common-env
+  RUST_LOG: DEBUG
+  LOKI_URL: http://loki:3100
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+
 services:
   crawler-api:
     build:
@@ -5,56 +10,54 @@ services:
       dockerfile: crawler-api/Dockerfile
     restart: always
     ports:
-      - 8000:8000
+      - 50051:50051
     expose:
-      - 8000
+      - 50051
     depends_on:
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
     environment:
-      - RUST_LOG=DEBUG
-      - QDRANT_URI=http://qdrant:6334
-      - MONGO_URI=mongodb://admin:password@mongodb:27017
-      - AMQP_URI=amqp://rabbitmq:5672
-      - REDIS_URI=redis://redis:6379
-      - JAEGER_HOST=jaeger:6831
-      - TEXT_EMBEDDINGS_INFERENCE_API=http://text-embeddings-inference-api:8000
+      <<: *common-env
+      REDIS_URI: redis://redis:6379
+      QDRANT_URI: http://qdrant:6334
+      MONGO_URI: mongodb://admin:password@mongodb:27017
+      TEI_URI: http://text-embeddings-inference-api:8000
 
   selector-service:
     build:
       context: .
       dockerfile: selector-service/Dockerfile
     restart: always
+    environment:
+      <<: *common-env
+      CRAWLER_URI: http://crawler-api:8000
+      MESSAGING_URI: http://messaging-service:8000
+
+  messaging-service:
+    build:
+      context: .
+      dockerfile: messaging-service/Dockerfile
+    restart: always
     ports:
-      - 8010:8000
-    expose:
-      - 8000
+      - 50051:50051
     depends_on:
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+    expose:
+      - 50051
     environment:
-      - RUST_LOG=DEBUG
-      - CRAWLER_API=http://crawler-api:8000
-      - REDIS_URI=redis://redis:6379
-      - AMQP_URI=amqp://rabbitmq:5672
-      - AMQP_USR=guest
-      - AMQP_PWD=guest
-      - JAEGER_HOST=jaeger:6831
-      - RABBITMQ_MANAGEMENT_HOST=http://rabbitmq:15672/api
+      <<: *common-env
+      REDIS_URI: redis://redis:6379
 
   text-embeddings-inference-api:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest
     ports:
-      - 8020-8030:8000
+      - 8020-8024:8000
     expose:
       - 8000
     deploy:
       mode: replicated
-      replicas: 10
+      replicas: 5
       endpoint_mode: vip
     volumes:
       - ./data:/data
@@ -65,7 +68,7 @@ services:
         "--port",
         "8000",
         "--otlp-endpoint",
-        "http://jaeger:4317",
+        "http://tempo:4317",
         "--payload-limit",
         "200000000",
         "--max-concurrent-requests",
@@ -82,23 +85,6 @@ services:
     command: redis-server --save 20 1 --loglevel warning
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
-
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    ports:
-      - 5672:5672
-      - 15672:15672
-    expose:
-      - 5672
-      - 15672
-    healthcheck:
-      test: rabbitmq-diagnostics -q ping
-      interval: 30s
-      timeout: 30s
-      retries: 3
-    volumes:
-      - ./data/rabbitmq/data:/var/lib/rabbitmq
-      - ./data/rabbitmq/log:/var/log/rabbitmq
 
   mongodb:
     image: mongo:latest
@@ -149,12 +135,53 @@ services:
 
   grafana:
     image: grafana/grafana:latest
-    ports:
-      - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
-      - grafana-storage:/var/lib/grafana
+      - "./conf:/etc/grafana/provisioning/datasources/"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: true
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: true
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    ports:
+      - 3000:3000
+
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - 3100:3100
+    command: -config.file=/etc/loki/local-config.yaml
+
+  tempo:
+    image: grafana/tempo:latest
+    command:
+      - "-config.file=/etc/tempo.yaml"
+    volumes:
+      - "./conf/tempo.yaml:/etc/tempo.yaml"
+    ports:
+      - 3200:3200
+      - 4317:4317
+    depends_on:
+      - init
+      - memcached
+
+  init:
+    image: grafana/tempo:latest
+    user: root
+    entrypoint:
+      - "chown"
+      - "10001:10001"
+      - "/var/tempo"
+    volumes:
+      - ./tempo-data:/var/tempo
+
+  memcached:
+    image: memcached:1.6.29
+    container_name: memcached
+    ports:
+      - "11211:11211"
+    environment:
+      - MEMCACHED_MAX_MEMORY=64m
+      - MEMCACHED_THREADS=4
 
 configs:
   qdrant_config:

@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package crawler;
+
+import "google/protobuf/empty.proto";
+
+service Crawler {
+    rpc Crawl(CrawlRequest) returns (google.protobuf.Empty);
+}
+
+message CrawlRequest {
+    string url = 1;
+}
+
