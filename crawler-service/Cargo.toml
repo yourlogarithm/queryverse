@@ -5,15 +5,15 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-bson = { version = "2.11", features = ["chrono-0_4"] }
-chrono = { version = "0.4", features = ["serde"] }
+chrono = "0.4.38"
 config = "0.14"
 futures = "0.3"
 lazy_static = "1.4"
-mongodm = "0.10"
+mongodb = "3.1.0"
+mongodm = "0.10.0"
 prost = "0.13"
-qdrant-client = "1.9"
-redis = { version = "0.27", features = ["tokio-comp"] }
+qdrant-client = "1.11.2"
+redis = { version = "0.27.2", features = ["tokio-comp"] }
 regex = "1.10"
 reqwest = "0.12"
 robotstxt = "0.3"
@@ -27,7 +27,7 @@ tonic-health = "0.12"
 tower-http = { version = "0.5", features = ["cors"] }
 tracing = "0.1"
 url = { version = "2.5", features = ["serde"] }
-utils = { path = "../utils", features = ["redis"]}
+utils = { path = "../utils", features = ["redis", "database"]}
 
 [build-dependencies]
 tonic-build = "0.12.2"

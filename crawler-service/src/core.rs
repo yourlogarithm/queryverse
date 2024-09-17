@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Context;
-use bson::{doc, Uuid};
 use mongodm::{
     f,
     mongo::options::{Hint, ReturnDocument},
@@ -10,9 +9,9 @@ use mongodm::{
 };
 use qdrant_client::qdrant::{value::Kind, PointStruct, UpsertPoints, Value};
 use scraper::{Html, Selector};
-
+use mongodb::bson::{Uuid, doc};
+use utils::database::{Page, UuidProjection, DATABASE};
 use crate::{
-    database::{Document, UuidProjection, DATABASE},
     proto::{
         messaging_client::MessagingClient, EmbedRequest, EmbedResponse, Payload, PublishRequest,
     },
@@ -48,26 +47,26 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
     let hash = sha256::digest(&content);
     let mut uuid = Uuid::new();
     let t = chrono::Utc::now();
-    let filter = doc! { f!(url in Document): url.as_str() };
+    let filter = doc! { f!(url in Page): url.as_str() };
     let update = doc! {
         SetOnInsert: {
-            f!(first in Document): mongodm::bson::Bson::DateTime(t.into()),
-            f!(uuid in Document): uuid,
+            f!(first in Page): mongodm::bson::Bson::DateTime(t.into()),
+            f!(uuid in Page): uuid,
         },
         Set: {
-            f!(sha256 in Document): &hash,
-            f!(last in Document): mongodm::bson::Bson::DateTime(t.into())
+            f!(sha256 in Page): &hash,
+            f!(last in Page): mongodm::bson::Bson::DateTime(t.into())
         }
     };
     if body.is_empty() {
         let options = mongodm::mongo::options::UpdateOptions::builder()
-            .hint(Hint::Keys(doc! { f!(url in Document): 1 }))
+            .hint(Hint::Keys(doc! { f!(url in Page): 1 }))
             .upsert(true)
             .build();
         let result = state
             .mongo_client
             .database(DATABASE)
-            .repository::<Document>()
+            .repository::<Page>()
             .update_one(filter, update)
             .with_options(options)
             .await
@@ -75,9 +74,9 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
         tracing::info!(matched_count = result.matched_count, modified_count = result.modified_count, "Upserted document with empty body");
     } else {
         let options = mongodm::mongo::options::FindOneAndUpdateOptions::builder()
-            .hint(Hint::Keys(doc! { f!(url in Document): 1 }))
+            .hint(Hint::Keys(doc! { f!(url in Page): 1 }))
             .return_document(ReturnDocument::After)
-            .projection(doc! { f!(uuid in Document): 1 })
+            .projection(doc! { f!(uuid in Page): 1 })
             .upsert(true)
             .build();
 
@@ -131,7 +130,7 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
                 payload.insert("url", value!(url.to_string()));
                 let point = PointStruct::new(uuid.to_string(), embeddings, payload);
                 let request = UpsertPoints { 
-                    collection_name: "documents".to_string(),
+                    collection_name: "pages".to_string(),
                     wait: Some(false),
                     points: vec![point],
                     ordering: None,

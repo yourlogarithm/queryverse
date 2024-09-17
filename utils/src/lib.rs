@@ -11,6 +11,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 #[cfg(feature = "redis")]
 pub mod redis;
 
+#[cfg(feature = "database")]
+pub mod database;
+
 fn init_tracer_provider(pkg: &str) -> Result<TracerProvider, TraceError> {
     let resource = Resource::new(vec![KeyValue::new("service.name", pkg.to_owned())]);
     opentelemetry_otlp::new_pipeline()

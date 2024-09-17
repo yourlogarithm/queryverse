@@ -1,11 +1,9 @@
-use redis::ToRedisArgs;
-
 pub enum Key<'a> {
     Robots(&'a str),
     Cooldown(&'a str),
 }
 
-impl<'a> ToRedisArgs for Key<'a> {
+impl<'a> redis::ToRedisArgs for Key<'a> {
     fn write_redis_args<W>(&self, out: &mut W)
     where
         W: ?Sized + redis::RedisWrite,

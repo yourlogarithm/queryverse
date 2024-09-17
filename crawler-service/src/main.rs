@@ -1,22 +1,20 @@
 mod core;
-mod database;
 mod robots;
 mod state;
 
-use bson::doc;
+use mongodb::{
+    bson::doc,
+    options::{CountOptions, Hint},
+};
 use mongodm::{f, prelude::GreaterThan, ToRepository};
 use proto::{
     crawler_server::{Crawler, CrawlerServer},
     CrawlRequest,
 };
 use tonic::{transport::Server, Code, Request, Response, Status};
+use utils::database::{Page, DATABASE};
 
-use crate::{
-    core::process,
-    database::{Document, DATABASE},
-    robots::is_robots_allowed,
-    state::AppState,
-};
+use crate::{core::process, robots::is_robots_allowed, state::AppState};
 
 mod proto {
     tonic::include_proto!("crawler");
@@ -48,17 +46,15 @@ impl Crawler for CrawlerService {
                     .state
                     .mongo_client
                     .database(DATABASE)
-                    .repository::<Document>();
-                let count_options = mongodm::mongo::options::CountOptions::builder()
-                    .hint(mongodm::mongo::options::Hint::Keys(
-                        doc! {f!(url in Document): 1},
-                    ))
+                    .repository::<Page>();
+                let count_options = CountOptions::builder()
+                    .hint(Hint::Keys(doc! {f!(url in Page): 1}))
                     .limit(1)
                     .build();
                 let past = chrono::Utc::now() - chrono::Duration::hours(1);
                 let filter = doc! {
-                    f!(url in Document): url.as_str(),
-                    f!(last in Document): { GreaterThan: past }
+                    f!(url in Page): url.as_str(),
+                    f!(last in Page): { GreaterThan: past }
                 };
                 match repo
                     .count_documents(filter)

@@ -1,0 +1,21 @@
+[package]
+name = "backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.89"
+axum = { version = "0.7", features = ["macros"] }
+config = "0.14.0"
+mongodb = "3.1.0"
+mongodm = "0.10.0"
+prost = "0.13.2"
+qdrant-client = "1.11.2"
+serde = { version = "1.0.210", features = ["derive"] }
+tokio = { version = "1.38.1", features = ["full"] }
+tonic = "0.12.2"
+tracing = "0.1.40"
+utils = { path = "../utils", features = ["database"] }
+
+[build-dependencies]
+tonic-build = "0.12.2"

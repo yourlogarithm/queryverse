@@ -19,8 +19,8 @@ services:
     environment:
       <<: *common-env
       REDIS_URI: redis://redis:6379
-      QDRANT_URI: http://qdrant:6334
-      MONGO_URI: mongodb://admin:password@mongodb:27017
+      QDRANT_URI_WRITE: http://qdrant:6334
+      MONGO_URI_WRITE: mongodb://admin:password@mongodb:27017
       TEI_URI: grpc://text-embeddings-inference-api:8000
       MESSAGING_URI: grpc://messaging-service:50051
 
