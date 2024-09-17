@@ -3,19 +3,23 @@ mod state;
 
 use std::net::SocketAddr;
 
-use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
+use axum::{extract::State, routing::get, Json, Router};
 use models::{error::ApiError, SearchRequest, SearchResponse};
 use proto::{EmbedRequest, EmbedResponse};
 use qdrant_client::qdrant::{SearchPointsBuilder, SearchResponse as QdrantSearchResponse};
 use state::{AppConfig, AppState};
+use utils::database::COLLNAME;
 
 mod proto {
     tonic::include_proto!("tei.v1");
 }
 
 #[axum::debug_handler]
-async fn fallback() -> (StatusCode, &'static str) {
-    (StatusCode::NOT_FOUND, "Endpoint not found")
+async fn fallback() -> ApiError {
+    ApiError {
+        message: "Endpoint not Found".to_string(),
+        error: models::error::ErrorType::NotFound,
+    }
 }
 
 #[axum::debug_handler]
@@ -42,10 +46,10 @@ async fn search(
             };
         })?
         .into_inner();
-    let search_points = SearchPointsBuilder::new("pages", embeddings, request.limit.unwrap_or(0))
+    let search_points = SearchPointsBuilder::new(COLLNAME, embeddings, request.limit.unwrap_or(10).min(50))
         .offset(request.offset.unwrap_or(0))
         .with_payload(true);
-    let QdrantSearchResponse { result, time } = state
+    let QdrantSearchResponse { result, .. } = state
         .qdrant_client
         .search_points(search_points)
         .await
@@ -56,7 +60,20 @@ async fn search(
                 error: models::error::ErrorType::InternalServerError,
             };
         })?;
-    todo!()
+
+    let matches: Vec<_> = result
+        .into_iter()
+        .map(|s| s.payload.try_into())
+        .filter_map(|result| match result {
+            Ok(result) => Some(result),
+            Err(e) => {
+                tracing::error!("Failed to parse search result: {e:#}");
+                None
+            }
+        })
+        .collect();
+
+    Ok(SearchResponse { matches })
 }
 
 async fn serve() {

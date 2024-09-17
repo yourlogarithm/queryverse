@@ -7,10 +7,10 @@ use mongodm::{
     operator::{Set, SetOnInsert},
     ToRepository,
 };
-use qdrant_client::qdrant::{value::Kind, PointStruct, UpsertPoints, Value};
+use qdrant_client::qdrant::{value::Kind, PointStruct, UpsertPointsBuilder, Value};
 use scraper::{Html, Selector};
 use mongodb::bson::{Uuid, doc};
-use utils::database::{Page, UuidProjection, DATABASE};
+use utils::database::{Page, UuidProjection, COLLNAME, DATABASE};
 use crate::{
     proto::{
         messaging_client::MessagingClient, EmbedRequest, EmbedResponse, Payload, PublishRequest,
@@ -129,13 +129,7 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
                 }
                 payload.insert("url", value!(url.to_string()));
                 let point = PointStruct::new(uuid.to_string(), embeddings, payload);
-                let request = UpsertPoints { 
-                    collection_name: "pages".to_string(),
-                    wait: Some(false),
-                    points: vec![point],
-                    ordering: None,
-                    shard_key_selector: None,
-                };
+                let request = UpsertPointsBuilder::new(COLLNAME, vec![point]);
                 match state
                     .qdrant_client
                     .upsert_points(request)

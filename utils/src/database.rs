@@ -13,12 +13,13 @@ use qdrant_client::{
 use serde::{Deserialize, Serialize};
 
 pub const DATABASE: &str = "crawler";
+pub const COLLNAME: &str = "pages";
 
 pub struct PagesCollConf;
 
 impl CollectionConfig for PagesCollConf {
     fn collection_name() -> &'static str {
-        "pages"
+        COLLNAME
     }
 
     fn indexes() -> Indexes {
@@ -66,11 +67,11 @@ pub async fn init_mongo(uri: &str) -> Result<MongoClient, MongoError> {
 pub async fn init_qdrant(uri: &str) -> Qdrant {
     tracing::info!("Initializing Qdrant client");
     let qdrant_client = Qdrant::from_url(uri).build().unwrap();
-    if !qdrant_client.collection_exists("pages").await.unwrap() {
+    if !qdrant_client.collection_exists(COLLNAME).await.unwrap() {
         tracing::info!("Creating Qdrant collection");
         qdrant_client
             .create_collection(
-                CreateCollectionBuilder::new("pages")
+                CreateCollectionBuilder::new(COLLNAME)
                     .vectors_config(VectorsConfig {
                         config: Some(QConfig::Params(VectorParams {
                             size: 384,
