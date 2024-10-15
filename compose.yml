@@ -2,6 +2,12 @@ x-common-env: &common-env
   RUST_LOG: INFO
   LOKI_URL: http://loki:3100
   OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+  REDIS_URI: redis://redis:6379
+  QDRANT_URI_WRITE: http://qdrant:6334
+  MONGO_URI_WRITE: mongodb://admin:password@mongodb:27017
+  TEI_URI: grpc://text-embeddings-inference-api:8000
+  MESSAGING_URI: grpc://messaging-service:50051
+  CRAWLER_URI: grpc://crawler-service:50051
 
 services:
   crawler-service:
@@ -18,11 +24,6 @@ services:
         condition: service_healthy
     environment:
       <<: *common-env
-      REDIS_URI: redis://redis:6379
-      QDRANT_URI_WRITE: http://qdrant:6334
-      MONGO_URI_WRITE: mongodb://admin:password@mongodb:27017
-      TEI_URI: grpc://text-embeddings-inference-api:8000
-      MESSAGING_URI: grpc://messaging-service:50051
 
   selector-service:
     build:
@@ -31,8 +32,6 @@ services:
     restart: always
     environment:
       <<: *common-env
-      CRAWLER_URI: grpc://crawler-service:50051
-      MESSAGING_URI: grpc://messaging-service:50051
 
   messaging-service:
     build:
@@ -48,33 +47,17 @@ services:
       - 50051
     environment:
       <<: *common-env
-      REDIS_URI: redis://redis:6379
 
   text-embeddings-inference-api:
-    image: ghcr.io/huggingface/text-embeddings-inference:cpu-latest-grpc
+    build: text-embeddings-inference
+    platform: ${PLATFORM}
     ports:
       - 8000:8000
     expose:
       - 8000
-    # deploy:
-    #   mode: replicated
-    #   replicas: 5
-    #   endpoint_mode: vip
     volumes:
       - ./data:/data
-    command:
-      [
-        "--model-id",
-        "BAAI/bge-m3",
-        "--port",
-        "8000",
-        "--otlp-endpoint",
-        "http://tempo:4317",
-        "--payload-limit",
-        "200000000",
-        "--max-concurrent-requests",
-        "1024",
-      ]
+    command: [ "--model-id", "BAAI/bge-m3", "--port", "8000", "--otlp-endpoint", "http://tempo:4317", "--payload-limit", "200000000", "--max-concurrent-requests", "1024" ]
 
   redis:
     image: redis:alpine
