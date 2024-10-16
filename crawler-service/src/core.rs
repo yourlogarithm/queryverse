@@ -1,6 +1,13 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::{
+    proto::{
+        messaging_client::MessagingClient, EmbedRequest, EmbedResponse, Payload, PublishRequest,
+    },
+    state::AppState,
+};
 use anyhow::Context;
+use mongodb::bson::{doc, Uuid};
 use mongodm::{
     f,
     mongo::options::{Hint, ReturnDocument},
@@ -9,14 +16,7 @@ use mongodm::{
 };
 use qdrant_client::qdrant::{value::Kind, PointStruct, UpsertPointsBuilder, Value};
 use scraper::{Html, Selector};
-use mongodb::bson::{Uuid, doc};
 use utils::database::{Page, UuidProjection, COLLNAME, DATABASE};
-use crate::{
-    proto::{
-        messaging_client::MessagingClient, EmbedRequest, EmbedResponse, Payload, PublishRequest,
-    },
-    state::AppState,
-};
 
 lazy_static::lazy_static! {
     static ref WHITESPACES: regex::Regex = regex::Regex::new(r"(\s)\s+").unwrap();
@@ -71,7 +71,11 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
             .with_options(options)
             .await
             .context("Failed to update or insert document")?;
-        tracing::info!(matched_count = result.matched_count, modified_count = result.modified_count, "Upserted document with empty body");
+        tracing::info!(
+            matched_count = result.matched_count,
+            modified_count = result.modified_count,
+            "Upserted document with empty body"
+        );
     } else {
         let options = mongodm::mongo::options::FindOneAndUpdateOptions::builder()
             .hint(Hint::Keys(doc! { f!(url in Page): 1 }))
@@ -130,12 +134,10 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
                 payload.insert("url", value!(url.to_string()));
                 let point = PointStruct::new(uuid.to_string(), embeddings, payload);
                 let request = UpsertPointsBuilder::new(COLLNAME, vec![point]);
-                match state
-                    .qdrant_client
-                    .upsert_points(request)
-                    .await
-                {
-                    Ok(info) => tracing::info!(operation_id = ?info.result.map(|r| r.operation_id), "Upserted embeddings"),
+                match state.qdrant_client.upsert_points(request).await {
+                    Ok(info) => {
+                        tracing::info!(operation_id = ?info.result.map(|r| r.operation_id), "Upserted embeddings")
+                    }
                     Err(e) => tracing::error!(error = %e, "Failed to upsert embeddings"),
                 }
             }

@@ -9,7 +9,10 @@ mod proto {
 }
 
 async fn listen() {
-    let AppState { mut messaging_client, mut crawler_client } = state::AppState::new().await;
+    let AppState {
+        mut messaging_client,
+        mut crawler_client,
+    } = state::AppState::new().await;
     let mut stream = messaging_client.subscribe(()).await.unwrap().into_inner();
     while let Some(Url { url }) = stream.message().await.unwrap() {
         tracing::info!(url = %url, "Received message");

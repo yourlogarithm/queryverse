@@ -1,4 +1,3 @@
-
 use opentelemetry::{global, trace::TraceError, KeyValue};
 use opentelemetry_sdk::{
     runtime,
@@ -18,9 +17,7 @@ fn init_tracer_provider(pkg: &str) -> Result<TracerProvider, TraceError> {
     let resource = Resource::new(vec![KeyValue::new("service.name", pkg.to_owned())]);
     opentelemetry_otlp::new_pipeline()
         .tracing()
-        .with_exporter(
-            opentelemetry_otlp::new_exporter().tonic(),
-        )
+        .with_exporter(opentelemetry_otlp::new_exporter().tonic())
         .with_trace_config(Config::default().with_resource(resource))
         .install_batch(runtime::Tokio)
 }

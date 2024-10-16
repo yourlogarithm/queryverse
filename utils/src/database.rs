@@ -64,7 +64,7 @@ pub async fn init_mongo(uri: &str) -> Result<MongoClient, MongoError> {
     Ok(client)
 }
 
-pub async fn init_qdrant(uri: &str) -> Qdrant {
+pub async fn init_qdrant(size: u64, uri: &str) -> Qdrant {
     tracing::info!("Initializing Qdrant client");
     let qdrant_client = Qdrant::from_url(uri).build().unwrap();
     if !qdrant_client.collection_exists(COLLNAME).await.unwrap() {
@@ -74,7 +74,7 @@ pub async fn init_qdrant(uri: &str) -> Qdrant {
                 CreateCollectionBuilder::new(COLLNAME)
                     .vectors_config(VectorsConfig {
                         config: Some(QConfig::Params(VectorParams {
-                            size: 384,
+                            size,
                             distance: Distance::Cosine.into(),
                             ..Default::default()
                         })),

@@ -23,10 +23,12 @@ async fn fallback() -> ApiError {
 }
 
 #[axum::debug_handler]
+#[tracing::instrument(skip(state, request), fields(query = request.query.len(), limit = request.limit, offset = request.offset))]
 async fn search(
     State(state): State<AppState>,
     Json(request): Json<SearchRequest>,
 ) -> Result<SearchResponse, ApiError> {
+    tracing::info!("Search request");
     let EmbedResponse { embeddings, .. } = state
         .tei_client
         .clone()
@@ -46,9 +48,10 @@ async fn search(
             };
         })?
         .into_inner();
-    let search_points = SearchPointsBuilder::new(COLLNAME, embeddings, request.limit.unwrap_or(10).min(50))
-        .offset(request.offset.unwrap_or(0))
-        .with_payload(true);
+    let search_points =
+        SearchPointsBuilder::new(COLLNAME, embeddings, request.limit.unwrap_or(10).min(50))
+            .offset(request.offset.unwrap_or(0))
+            .with_payload(true);
     let QdrantSearchResponse { result, .. } = state
         .qdrant_client
         .search_points(search_points)
@@ -94,6 +97,8 @@ async fn serve() {
             ),
         )
         .fallback(fallback);
+
+    tracing::info!("Listening on {socket_address}");
 
     axum::serve(listener, app.into_make_service())
         .await

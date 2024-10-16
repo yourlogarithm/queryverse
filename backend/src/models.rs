@@ -24,9 +24,9 @@ impl TryFrom<HashMap<String, Value>> for MatchResult {
         macro_rules! get {
             ($key:expr) => {
                 match value.remove($key) {
-                    Some(Value { kind: Some(Kind::StringValue(v)) }) => {
-                        v
-                    },
+                    Some(Value {
+                        kind: Some(Kind::StringValue(v)),
+                    }) => v,
                     Some(other) => anyhow::bail!("Unexpected `{}` value: {:?}", $key, other),
                     None => anyhow::bail!("Missing `{}` value", $key),
                 }
@@ -34,7 +34,7 @@ impl TryFrom<HashMap<String, Value>> for MatchResult {
         }
         let title = get!("title");
         let url = get!("url");
-        
+
         Ok(MatchResult { title, url })
     }
 }

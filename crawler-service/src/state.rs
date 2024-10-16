@@ -26,6 +26,7 @@ struct AppConfig {
     pub mongo_uri_write: String,
     pub tei_uri: String,
     pub messaging_uri: String,
+    pub vector_dim: u64,
 }
 
 impl AppState {
@@ -58,7 +59,9 @@ impl AppState {
         Self {
             redis_client,
             reqwest_client,
-            qdrant_client: Arc::new(init_qdrant(&app_config.qdrant_uri_write).await),
+            qdrant_client: Arc::new(
+                init_qdrant(app_config.vector_dim, &app_config.qdrant_uri_write).await,
+            ),
             mongo_client: init_mongo(&app_config.mongo_uri_write).await.unwrap(),
             tei_client,
             messaging_client,

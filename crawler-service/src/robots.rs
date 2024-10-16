@@ -16,8 +16,16 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
         .context("Failed to establish Redis connection")?;
 
     let key = Key::Robots(domain);
-    if let Some(allowed) = conn.get::<_, Option<u8>>(&key).await.context("Failed to GET from Redis")? {
-        tracing::info!(domain = domain, cached = true, "Robots.txt decision retrieved from cache");
+    if let Some(allowed) = conn
+        .get::<_, Option<u8>>(&key)
+        .await
+        .context("Failed to GET from Redis")?
+    {
+        tracing::info!(
+            domain = domain,
+            cached = true,
+            "Robots.txt decision retrieved from cache"
+        );
         return Ok(allowed == 1);
     }
 

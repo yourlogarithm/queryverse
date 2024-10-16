@@ -5,9 +5,10 @@ x-common-env: &common-env
   REDIS_URI: redis://redis:6379
   QDRANT_URI_WRITE: http://qdrant:6334
   MONGO_URI_WRITE: mongodb://admin:password@mongodb:27017
-  TEI_URI: grpc://text-embeddings-inference-api:8000
+  TEI_URI: grpc://text-embeddings-inference-api:50051
   MESSAGING_URI: grpc://messaging-service:50051
   CRAWLER_URI: grpc://crawler-service:50051
+  VECTOR_DIM: 1024
 
 services:
   crawler-service:
@@ -49,15 +50,16 @@ services:
       <<: *common-env
 
   text-embeddings-inference-api:
-    build: text-embeddings-inference
-    platform: ${PLATFORM}
+    build: 
+      context: text-embeddings-inference
+      target: grpc
     ports:
-      - 8000:8000
+      - 50053:50051
     expose:
-      - 8000
+      - 50051
     volumes:
       - ./data:/data
-    command: [ "--model-id", "BAAI/bge-m3", "--port", "8000", "--otlp-endpoint", "http://tempo:4317", "--payload-limit", "200000000", "--max-concurrent-requests", "1024" ]
+    command: [ "--model-id", "BAAI/bge-m3", "--port", "50051", "--otlp-endpoint", "http://tempo:4317", "--payload-limit", "200000000", "--max-concurrent-requests", "1024" ]
 
   redis:
     image: redis:alpine
