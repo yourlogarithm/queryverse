@@ -1,32 +1,23 @@
-ARG RUST_VERSION=1.78
-ARG APP_NAME=messaging-service
+FROM lukemathwalker/cargo-chef:latest-rust-1 AS chef
+WORKDIR /app
 
-FROM rust:${RUST_VERSION}-bookworm AS build
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
 ARG APP_NAME
 RUN apt-get update && apt-get install -y \
     protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
-WORKDIR /app
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
 COPY . .
-RUN \
-    --mount=type=cache,target=/app/target/ \
-    --mount=type=cache,target=/usr/local/cargo/registry/ \
-    cargo build --release --locked --bin ${APP_NAME} && \
-    cp target/release/${APP_NAME} /bin/app
+RUN cargo build --release --bin ${APP_NAME}
 
-FROM debian:bookworm-slim AS final
+FROM debian:bookworm-slim AS runtime
 ARG APP_NAME
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/nonexistent" \
-    --shell "/sbin/nologin" \
-    --no-create-home \
-    --uid "10001" \
-    appuser
 WORKDIR /app
-USER appuser
-COPY --from=build /bin/app /app/server
+COPY --from=builder /app/target/release/${APP_NAME} /usr/local/bin/app
 EXPOSE 8000
-CMD ["/app/server"]
+ENTRYPOINT ["/usr/local/bin/app"]

@@ -1,7 +1,6 @@
 x-common-env: &common-env
   RUST_LOG: INFO
-  LOKI_URL: http://loki:3100
-  OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317
+  OTEL_COLLECTOR: http://otel-collector:4317
   REDIS_URI: redis://redis:6379
   QDRANT_URI_WRITE: http://qdrant:6334
   MONGO_URI_WRITE: mongodb://admin:password@mongodb:27017
@@ -15,6 +14,8 @@ services:
     build:
       context: .
       dockerfile: crawler-service/Dockerfile
+      args:
+        APP_NAME: crawler-service
     restart: always
     ports:
       - 50051:50051
@@ -30,6 +31,8 @@ services:
     build:
       context: .
       dockerfile: selector-service/Dockerfile
+      args:
+        APP_NAME: selector-service
     restart: always
     environment:
       <<: *common-env
@@ -38,6 +41,8 @@ services:
     build:
       context: .
       dockerfile: messaging-service/Dockerfile
+      args:
+        APP_NAME: messaging-service
     restart: always
     ports:
       - 50052:50051
@@ -50,7 +55,7 @@ services:
       <<: *common-env
 
   text-embeddings-inference-api:
-    build: 
+    build:
       context: text-embeddings-inference
       target: grpc
     ports:
@@ -59,7 +64,7 @@ services:
       - 50051
     volumes:
       - ./data:/data
-    command: [ "--model-id", "BAAI/bge-m3", "--port", "50051", "--otlp-endpoint", "http://tempo:4317", "--payload-limit", "200000000", "--max-concurrent-requests", "1024" ]
+    command: [ "--model-id", "BAAI/bge-m3", "--port", "50051", "--otlp-endpoint", "http://otel-collector:4317", "--payload-limit", "200000000", "--max-concurrent-requests", "1024" ]
 
   redis:
     image: redis:alpine
@@ -120,54 +125,31 @@ services:
       - ./data/qdrant:/qdrant/storage
 
   grafana:
-    image: grafana/grafana:latest
-    volumes:
-      - "./conf:/etc/grafana/provisioning/datasources/"
-    environment:
-      GF_AUTH_ANONYMOUS_ENABLED: true
-      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
-      GF_AUTH_DISABLE_LOGIN_FORM: true
-      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    image: grafana/grafana-oss:latest
+    container_name: grafana
     ports:
       - 3000:3000
-
-  loki:
-    image: grafana/loki:latest
-    ports:
-      - 3100:3100
-    command: -config.file=/etc/loki/local-config.yaml
-
-  tempo:
-    image: grafana/tempo:latest
-    command:
-      - "-config.file=/etc/tempo.yaml"
-    volumes:
-      - "./conf/tempo.yaml:/etc/tempo.yaml"
-    ports:
-      - 3200:3200
-      - 4317:4317
-    depends_on:
-      - init
-      - memcached
-
-  init:
-    image: grafana/tempo:latest
-    user: root
-    entrypoint:
-      - "chown"
-      - "10001:10001"
-      - "/var/tempo"
-    volumes:
-      - ./tempo-data:/var/tempo
-
-  memcached:
-    image: memcached:1.6.29
-    container_name: memcached
-    ports:
-      - "11211:11211"
     environment:
-      - MEMCACHED_MAX_MEMORY=64m
-      - MEMCACHED_THREADS=4
+      GF_INSTALL_PLUGINS: https://github.com/quickwit-oss/quickwit-datasource/releases/download/v0.3.1/quickwit-quickwit-datasource-0.3.1.zip;quickwit-quickwit-datasource
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+
+  quickwit:
+    image: quickwit/quickwit:latest
+    ports:
+      - 7280:7280
+    command: [ "run" ]
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    restart: always
+    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    volumes:
+      - ./conf/otel-collector.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - 4317:4317
+      - 4318:4318
 
 configs:
   qdrant_config:
