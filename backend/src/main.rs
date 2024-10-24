@@ -28,7 +28,7 @@ async fn search(
     State(state): State<AppState>,
     Json(request): Json<SearchRequest>,
 ) -> Result<SearchResponse, ApiError> {
-    tracing::info!("Search request");
+    tracing::debug!("Search request");
     let EmbedResponse { embeddings, .. } = state
         .tei_client
         .clone()
@@ -98,7 +98,7 @@ async fn serve() {
         )
         .fallback(fallback);
 
-    tracing::info!("Listening on {socket_address}");
+    tracing::debug!("Listening on {socket_address}");
 
     axum::serve(listener, app.into_make_service())
         .await

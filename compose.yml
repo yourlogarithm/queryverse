@@ -7,6 +7,7 @@ x-common-env: &common-env
   TEI_URI: grpc://text-embeddings-inference-api:50051
   MESSAGING_URI: grpc://messaging-service:50051
   CRAWLER_URI: grpc://crawler-service:50051
+  LOGSTASH_URI: http://logstash:5044
   VECTOR_DIM: 1024
 
 services:
@@ -58,8 +59,6 @@ services:
     build:
       context: text-embeddings-inference
       target: grpc
-    ports:
-      - 50053:50051
     expose:
       - 50051
     volumes:
@@ -127,6 +126,8 @@ services:
   grafana:
     image: grafana/grafana-oss:latest
     container_name: grafana
+    volumes:
+      - ./conf/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/grafana-datasources.yaml
     ports:
       - 3000:3000
     environment:
@@ -135,11 +136,34 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
 
-  quickwit:
-    image: quickwit/quickwit:latest
+  tempo:
+    image: grafana/tempo:latest
+    command:
+      - "-config.file=/etc/tempo.yaml"
+    volumes:
+      - "./conf/tempo.yaml:/etc/tempo.yaml"
+    depends_on:
+      - init
+      - memcached
+
+  init:
+    image: grafana/tempo:latest
+    user: root
+    entrypoint:
+      - "chown"
+      - "10001:10001"
+      - "/var/tempo"
+    volumes:
+      - ./tempo-data:/var/tempo
+
+  memcached:
+    image: memcached:latest
+    container_name: memcached
     ports:
-      - 7280:7280
-    command: [ "run" ]
+      - "11211:11211"
+    environment:
+      - MEMCACHED_MAX_MEMORY=64m
+      - MEMCACHED_THREADS=4
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -147,14 +171,51 @@ services:
     command: [ "--config=/etc/otel-collector-config.yaml" ]
     volumes:
       - ./conf/otel-collector.yaml:/etc/otel-collector-config.yaml
+
+  loki:
+    image: grafana/loki:latest
     ports:
-      - 4317:4317
-      - 4318:4318
+      - 3100:3100
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.14.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:7.14.0
+    container_name: logstash
+    volumes:
+      - ./conf/logstash/pipeline:/usr/share/logstash/pipeline
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.14.0
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200
+    ports:
+      - 5601:5601
+    depends_on:
+      - elasticsearch
+
+volumes:
+  esdata:
+    driver: local
+  grafana-storage:
 
 configs:
   qdrant_config:
     content: |
       log_level: INFO
-
-volumes:
-  grafana-storage:

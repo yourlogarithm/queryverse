@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    log::{Content, Log},
     proto::{
         messaging_client::MessagingClient, EmbedRequest, EmbedResponse, Payload, PublishRequest,
     },
@@ -16,6 +17,7 @@ use mongodm::{
 };
 use qdrant_client::qdrant::{value::Kind, PointStruct, UpsertPointsBuilder, Value};
 use scraper::{Html, Selector};
+use url::Url;
 use utils::database::{Page, UuidProjection, COLLNAME, DATABASE};
 
 lazy_static::lazy_static! {
@@ -25,15 +27,15 @@ lazy_static::lazy_static! {
     static ref TITLE_SELECTOR: Selector = Selector::parse("title").unwrap();
 }
 
-#[tracing::instrument(skip(state), fields(url = %url.as_str()))]
-pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
-    let content = if let Some(content) = get_content(url.clone(), &state.reqwest_client).await? {
+#[tracing::instrument(skip(log, state), fields(url = %url))]
+pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::Result<()> {
+    let content = if let Some(content) = get_content(url, &state.reqwest_client).await? {
         content
     } else {
-        tracing::info!("Skipping URL due to empty content");
+        tracing::debug!(url = %url, "Skipping URL due to empty content");
         return Ok(());
     };
-    tracing::info!(content_length = content.len(), "Retrieved content");
+    tracing::debug!(content_length = content.len(), url = %url, "Retrieved content");
 
     let document = Html::parse_document(&content);
     let body = document
@@ -42,7 +44,29 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
     let body = WHITESPACES.replace_all(&body, "$1").to_string();
-    tracing::info!(body_length = body.len(), "Extracted and processed body");
+    tracing::debug!(body_length = body.len(), url = %url, "Extracted and processed body");
+
+    let links: HashSet<_> = document
+        .select(&HREF_SELECTOR)
+        .flat_map(|e| {
+            e.value()
+                .attr("href")
+                .map(|relative| url.join(relative))
+        })
+        .flatten()
+        .map(|mut url| {
+            url.set_fragment(None);
+            url
+        })
+        .filter(|edge| edge != url)
+        .collect();
+    tracing::debug!(edge_count = links.len(), url = %url, "Extracted links");
+
+    log.data = Some(Content {
+        content_length: content.len(),
+        body_length: body.len(),
+        edges: links.len(),
+    });
 
     let hash = sha256::digest(&content);
     let mut uuid = Uuid::new();
@@ -71,9 +95,10 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
             .with_options(options)
             .await
             .context("Failed to update or insert document")?;
-        tracing::info!(
+        tracing::debug!(
             matched_count = result.matched_count,
             modified_count = result.modified_count,
+            url = %url,
             "Upserted document with empty body"
         );
     } else {
@@ -93,10 +118,10 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
             .await
             .context("Failed to update or insert document")?
         {
-            tracing::info!(uuid = ?document.uuid, "Updated document");
+            tracing::debug!(uuid = ?document.uuid, url = %url, "Updated document");
             uuid = document.uuid
         } else {
-            tracing::info!(uuid = ?uuid, "Inserted document");
+            tracing::debug!(uuid = ?uuid, url = %url, "Inserted document");
         }
 
         let request = EmbedRequest {
@@ -136,34 +161,24 @@ pub async fn process(url: url::Url, state: &AppState) -> anyhow::Result<()> {
                 let request = UpsertPointsBuilder::new(COLLNAME, vec![point]);
                 match state.qdrant_client.upsert_points(request).await {
                     Ok(info) => {
-                        tracing::info!(operation_id = ?info.result.map(|r| r.operation_id), "Upserted embeddings")
+                        tracing::debug!(operation_id = ?info.result.map(|r| r.operation_id), url = %url, "Upserted embeddings")
                     }
-                    Err(e) => tracing::error!(error = %e, "Failed to upsert embeddings"),
+                    Err(e) => {
+                        tracing::error!(error = %e, url = %url, "Failed to upsert embeddings")
+                    }
                 }
             }
-            Err(e) => tracing::error!(error = %e, "Failed to embed content"),
+            Err(e) => tracing::error!(error = %e, url = %url, "Failed to embed content"),
         }
     }
 
-    let links: HashSet<_> = document
-        .select(&HREF_SELECTOR)
-        .flat_map(|e| e.value().attr("href").map(|relative| url.join(relative)))
-        .flatten()
-        .map(|mut url| {
-            url.set_fragment(None);
-            url
-        })
-        .filter(|edge| edge != &url)
-        .collect();
-    tracing::info!(edge_count = links.len(), "Extracted links");
-
-    tracing::info!("Publishing links");
+    tracing::debug!(url = %url, "Publishing links");
     publish(links, &state.messaging_client).await
 }
 
 #[tracing::instrument(skip(client), fields(url = %url.as_str()))]
-async fn get_content(url: url::Url, client: &reqwest::Client) -> anyhow::Result<Option<String>> {
-    tracing::info!("Sending HEAD request");
+async fn get_content(url: &url::Url, client: &reqwest::Client) -> anyhow::Result<Option<String>> {
+    tracing::debug!(url = %url, "Sending HEAD request");
     let response = client
         .head(url.clone())
         .send()
@@ -173,13 +188,13 @@ async fn get_content(url: url::Url, client: &reqwest::Client) -> anyhow::Result<
         .context("HEAD Response")?;
     if let Some(content_type) = response.headers().get("content-type") {
         if !content_type.to_str()?.contains("text/html") {
-            tracing::info!(content_type = ?content_type, "Skipping non-HTML content");
+            tracing::debug!(content_type = ?content_type, "Skipping non-HTML content");
             return Ok(None);
         }
     }
-    tracing::info!("Sending GET request");
+    tracing::debug!(url = %url, "Sending GET request");
     let content = client
-        .get(url)
+        .get(url.clone())
         .send()
         .await
         .context("GET Request")?
@@ -207,10 +222,10 @@ async fn publish(
         })
         .collect();
     if payloads.is_empty() {
-        tracing::info!("No valid payloads to publish");
+        tracing::debug!("No valid payloads to publish");
         return Ok(());
     }
-    tracing::info!(payload_count = payloads.len(), "Publishing payloads");
+    tracing::debug!(payload_count = payloads.len(), "Publishing payloads");
     client
         .clone()
         .publish_urls(PublishRequest { payloads })

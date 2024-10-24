@@ -1,7 +1,9 @@
 mod core;
+mod log;
 mod robots;
 mod state;
 
+use log::Log;
 use mongodb::{
     bson::doc,
     options::{CountOptions, Hint},
@@ -11,7 +13,8 @@ use proto::{
     crawler_server::{Crawler, CrawlerServer},
     CrawlRequest,
 };
-use tonic::{transport::Server, Code, Request, Response, Status};
+use tokio::time::Instant;
+use tonic::{transport::Server, Request, Response, Status};
 use utils::database::{Page, DATABASE};
 
 use crate::{core::process, robots::is_robots_allowed, state::AppState};
@@ -29,19 +32,21 @@ struct CrawlerService {
 #[tonic::async_trait]
 impl Crawler for CrawlerService {
     async fn crawl(&self, request: Request<CrawlRequest>) -> Result<Response<()>, Status> {
+        let instant = Instant::now();
+
         let CrawlRequest { url } = request.into_inner();
         let url = match reqwest::Url::parse(&url) {
             Err(e) => {
                 tracing::error!(error = %e, "Failed to parse URL");
-                return Err(Status::new(Code::InvalidArgument, e.to_string()));
+                return Err(Status::invalid_argument(e.to_string()));
             }
             Ok(url) => url,
         };
-        tracing::info!(url = %url, "Received crawl request");
+        tracing::debug!(url = %url, "Received crawl request");
 
-        match is_robots_allowed(&url, &self.state).await {
+        let (log, response) = match is_robots_allowed(&url, &self.state).await {
             Ok(true) => {
-                tracing::info!(url = %url, "Robots.txt allows crawling");
+                tracing::debug!(url = %url, "robots.txt allows crawling");
                 let repo = self
                     .state
                     .mongo_client
@@ -63,35 +68,54 @@ impl Crawler for CrawlerService {
                 {
                     Ok(0) => (),
                     Ok(_) => {
-                        tracing::info!(url = %url, "URL already crawled within the last hour");
+                        tracing::debug!(url = %url, "URL already crawled within the last hour");
                         return Ok(Response::new(()));
                     }
                     Err(e) => {
                         tracing::error!(error = %e, url = %url, "Failed to check if URL was already crawled");
-                        return Err(Status::new(Code::Internal, e.to_string()));
+                        return Err(Status::internal(e.to_string()));
                     }
                 }
-                let process_result = process(url.clone(), &self.state).await;
-                match process_result {
+                let mut log = Log::from_url(&url, true);
+                match process(&url, &mut log, &self.state).await {
                     Ok(_) => {
-                        tracing::info!(url = %url, "Successfully crawled URL");
-                        Ok(Response::new(()))
+                        tracing::debug!(url = %url, "Successfully crawled URL");
+                        (log, Ok(Response::new(())))
                     }
                     Err(e) => {
                         tracing::error!(error = %e, url = %url, "Failed to process URL");
-                        Err(Status::new(Code::Internal, e.to_string()))
+                        log.error = true;
+                        (log, Err(Status::internal(e.to_string())))
                     }
                 }
             }
             Ok(false) => {
-                tracing::info!(url = %url, "Robots.txt disallows crawling");
-                Ok(Response::new(()))
+                tracing::debug!(url = %url, "Robots.txt disallows crawling");
+                (Log::from_url(&url, false), Ok(Response::new(())))
             }
             Err(e) => {
                 tracing::error!(error = %e, url = %url, "Failed to check robots.txt");
-                Err(Status::new(Code::Internal, e.to_string()))
+                let mut log = Log::from_url(&url, false);
+                log.error = true;
+                (log, Err(Status::internal(e.to_string())))
             }
-        }
+        };
+
+        tracing::info!(url = %url, "Crawled in {:.2}ms", instant.elapsed().as_millis());
+
+        let logstash_post = self
+            .state
+            .reqwest_client
+            .post(&self.state.logstash_uri)
+            .json(&log);
+
+        tokio::spawn(async move {
+            if let Err(e) = logstash_post.send().await {
+                tracing::error!("Failed to send logstash log: {e:#}");
+            }
+        });
+
+        response
     }
 }
 
@@ -105,6 +129,9 @@ async fn serve() {
     let addr = "0.0.0.0:50051".parse().unwrap();
     let crawler = CrawlerService { state };
     let server = CrawlerServer::new(crawler);
+
+    tracing::info!("Serving at {addr}");
+
     Server::builder()
         .add_service(health_service)
         .add_service(server)

@@ -28,12 +28,12 @@ impl AppState {
             .try_deserialize()
             .expect("Failed to deserialize configuration");
 
-        tracing::info!("Connected to Crawler Service");
+        tracing::debug!("Connected to Crawler Service");
         let crawler_client = CrawlerClient::connect(app_config.crawler_uri)
             .await
             .unwrap();
 
-        tracing::info!("Connected to Messaging Service");
+        tracing::debug!("Connected to Messaging Service");
         let messaging_client = MessagingClient::connect(app_config.messaging_uri)
             .await
             .unwrap();

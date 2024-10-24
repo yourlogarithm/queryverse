@@ -15,7 +15,7 @@ async fn listen() {
     } = state::AppState::new().await;
     let mut stream = messaging_client.subscribe(()).await.unwrap().into_inner();
     while let Some(Url { url }) = stream.message().await.unwrap() {
-        tracing::info!(url = %url, "Received message");
+        tracing::debug!(url = %url, "Received message");
         if let Err(e) = crawler_client.crawl(CrawlRequest { url }).await {
             tracing::error!(error = %e, "Failed to crawl");
         }

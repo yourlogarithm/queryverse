@@ -17,6 +17,7 @@ pub struct AppState {
     pub mongo_client: mongodm::mongo::Client,
     pub tei_client: EmbedClient<tonic::transport::Channel>,
     pub messaging_client: MessagingClient<tonic::transport::Channel>,
+    pub logstash_uri: String,
 }
 
 #[derive(Deserialize)]
@@ -27,6 +28,7 @@ struct AppConfig {
     pub tei_uri: String,
     pub messaging_uri: String,
     pub vector_dim: u64,
+    pub logstash_uri: String,
 }
 
 impl AppState {
@@ -42,10 +44,10 @@ impl AppState {
             .try_deserialize()
             .expect("Failed to deserialize configuration");
 
-        tracing::info!("Initializing Redis client");
+        tracing::debug!("Initializing Redis client");
         let redis_client = redis::Client::open(app_config.redis_uri).unwrap();
 
-        tracing::info!("Initializing Reqwest client");
+        tracing::debug!("Initializing Reqwest client");
         let reqwest_client = reqwest::Client::builder()
             .user_agent(APP_USER_AGENT)
             .build()
@@ -65,6 +67,7 @@ impl AppState {
             mongo_client: init_mongo(&app_config.mongo_uri_write).await.unwrap(),
             tei_client,
             messaging_client,
+            logstash_uri: app_config.logstash_uri
         }
     }
 }

@@ -10,18 +10,20 @@ processors:
   batch:
 
 exporters:
-  otlp/quickwit:
-    endpoint: quickwit:7281
-    tls:
-      insecure: true
+  otlp:
+   endpoint: tempo:4317
+   tls:
+    insecure: true
+  otlphttp:
+    endpoint: http://loki:3100/otlp
 
 service:
   pipelines:
     logs:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/quickwit]
+      exporters: [otlphttp]
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/quickwit]
+      exporters: [otlp]

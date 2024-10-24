@@ -56,7 +56,7 @@ impl Model for Page {
 }
 
 pub async fn init_mongo(uri: &str) -> Result<MongoClient, MongoError> {
-    tracing::info!("Initializing MongoDB client");
+    tracing::debug!("Initializing MongoDB client");
     let client_options = ClientOptions::parse(uri).await?;
     let client = MongoClient::with_options(client_options)?;
     let db = client.database(DATABASE);
@@ -65,10 +65,10 @@ pub async fn init_mongo(uri: &str) -> Result<MongoClient, MongoError> {
 }
 
 pub async fn init_qdrant(size: u64, uri: &str) -> Qdrant {
-    tracing::info!("Initializing Qdrant client");
+    tracing::debug!("Initializing Qdrant client");
     let qdrant_client = Qdrant::from_url(uri).build().unwrap();
     if !qdrant_client.collection_exists(COLLNAME).await.unwrap() {
-        tracing::info!("Creating Qdrant collection");
+        tracing::debug!("Creating Qdrant collection");
         qdrant_client
             .create_collection(
                 CreateCollectionBuilder::new(COLLNAME)

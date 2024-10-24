@@ -39,7 +39,7 @@ impl Messaging for MessagingService {
     ) -> Result<Response<()>, Status> {
         let PublishRequest { payloads } = request.into_inner();
         let mut map = self.queues.lock().await;
-        tracing::info!("Publishing {} URLs", payloads.len());
+        tracing::debug!("Publishing {} URLs", payloads.len());
         for payload in payloads {
             tracing::debug!(domain = %payload.queue, url = %payload.message, "Adding URL to queue");
             let entry = map.entry(payload.queue).or_default();
@@ -50,7 +50,7 @@ impl Messaging for MessagingService {
     }
 
     async fn subscribe(&self, _: Request<()>) -> Result<Response<Self::SubscribeStream>, Status> {
-        tracing::info!("New subscription request received");
+        tracing::debug!("New subscription request received");
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let queues = self.queues.clone();
         let redis_client = self.redis_client.clone();
@@ -134,12 +134,12 @@ async fn consume(
     if let Some((domain, queue)) = entry {
         let domain = domain.to_owned();
         let Some(url) = queue.pop() else {
-            tracing::info!(domain = %domain, "Queue emptied, removing domain");
+            tracing::debug!(domain = %domain, "Queue emptied, removing domain");
             map.remove(&domain);
             return Ok(());
         };
         if queue.is_empty() {
-            tracing::info!(domain = %domain, "Queue emptied, removing domain");
+            tracing::debug!(domain = %domain, "Queue emptied, removing domain");
             map.remove(&domain);
         }
         drop(map);
@@ -163,16 +163,16 @@ struct AppConfig {
 }
 
 async fn serve() {
-    tracing::info!("Setting up health router");
+    tracing::debug!("Setting up health router");
     let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
     health_reporter
         .set_serving::<MessagingServer<MessagingService>>()
         .await;
 
-    tracing::info!("Loading environment variables");
+    tracing::debug!("Loading environment variables");
     let env = Environment::default().ignore_empty(true);
 
-    tracing::info!("Building AppConfig");
+    tracing::debug!("Building AppConfig");
     let config = Config::builder()
         .add_source(env)
         .build()
@@ -189,7 +189,7 @@ async fn serve() {
     };
 
     let addr = "0.0.0.0:50051".parse().unwrap();
-    tracing::info!(address = %addr, "Server listening");
+    tracing::debug!(address = %addr, "Server listening");
     Server::builder()
         .add_service(health_service)
         .add_service(MessagingServer::new(service))

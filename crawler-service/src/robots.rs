@@ -21,7 +21,7 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
         .await
         .context("Failed to GET from Redis")?
     {
-        tracing::info!(
+        tracing::debug!(
             domain = domain,
             cached = true,
             "Robots.txt decision retrieved from cache"
@@ -33,7 +33,7 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
     let robots_url = format!("{}://{}/robots.txt", scheme, domain);
     let robots_url = url::Url::parse(&robots_url).context("Failed to parse robots.txt URL")?;
 
-    tracing::info!(domain = domain, url = %robots_url, "Fetching robots.txt");
+    tracing::debug!(domain = domain, url = %robots_url, "Fetching robots.txt");
     let content = state
         .reqwest_client
         .get(robots_url)
@@ -55,7 +55,7 @@ pub async fn is_robots_allowed(url: &url::Url, state: &state::AppState) -> anyho
         .await
         .context("Failed to SET & EXPIRE in Redis")?;
 
-    tracing::info!(
+    tracing::debug!(
         domain = domain,
         allowed = allowed,
         "Robots.txt decision cached"

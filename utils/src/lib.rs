@@ -6,7 +6,9 @@ use opentelemetry_sdk::{
     trace::{Config, TracerProvider},
     Resource,
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer, field::MakeExt};
+use tracing_subscriber::{
+    field::MakeExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter,
+};
 
 #[cfg(feature = "redis")]
 pub mod redis;
@@ -29,10 +31,7 @@ fn init_tracer_provider(pkg: &str, endpoint: &str) -> TracerProvider {
                 .tonic()
                 .with_endpoint(endpoint),
         )
-        .with_trace_config(
-            Config::default()
-                .with_resource(get_resource(pkg))
-        )
+        .with_trace_config(Config::default().with_resource(get_resource(pkg)))
         .install_batch(opentelemetry_sdk::runtime::Tokio)
         .unwrap()
 }
@@ -59,14 +58,18 @@ pub async fn start(pkg: &str, f: std::pin::Pin<Box<dyn futures::Future<Output = 
     let logger_provider = init_logs(pkg, &otel_endpoint);
     let layer = OpenTelemetryTracingBridge::new(&logger_provider);
 
-    let filter = EnvFilter::from_default_env();
+    let filter = EnvFilter::from_default_env()
+        .add_directive("hyper=error".parse().unwrap())
+        .add_directive("tonic=error".parse().unwrap())
+        .add_directive("reqwest=error".parse().unwrap());
+
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::fmt::layer()
                 .without_time()
-                .map_fmt_fields(|f| f.debug_alt())
-                .with_filter(filter),
+                .map_fmt_fields(|f| f.debug_alt()),
         )
+        .with(filter)
         .with(layer)
         .init();
 
