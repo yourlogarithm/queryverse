@@ -3,6 +3,7 @@ x-common-env: &common-env
   OTEL_COLLECTOR: http://otel-collector:4317
   REDIS_URI: redis://redis:6379
   QDRANT_URI_WRITE: http://qdrant:6334
+  QDRANT_URI_READ: http://qdrant:6334
   MONGO_URI_WRITE: mongodb://admin:password@mongodb:27017
   TEI_URI: grpc://text-embeddings-inference-api:50051
   MESSAGING_URI: grpc://messaging-service:50051
@@ -11,6 +12,21 @@ x-common-env: &common-env
   VECTOR_DIM: 1024
 
 services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        APP_NAME: backend
+    restart: always
+    ports:
+      - 8000:8000
+    expose:
+      - 8000
+    environment:
+      <<: *common-env
+
+
   crawler-service:
     build:
       context: .
