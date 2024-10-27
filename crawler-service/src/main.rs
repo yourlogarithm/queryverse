@@ -2,12 +2,10 @@ mod core;
 mod log;
 mod robots;
 mod state;
+mod traverse;
 
 use log::Log;
-use mongodb::{
-    bson::doc,
-    options::{CountOptions, Hint},
-};
+use mongodb::{bson::doc, options::CountOptions};
 use mongodm::{f, prelude::GreaterThan, ToRepository};
 use proto::{
     crawler_server::{Crawler, CrawlerServer},
@@ -22,7 +20,6 @@ use crate::{core::process, robots::is_robots_allowed, state::AppState};
 mod proto {
     tonic::include_proto!("crawler");
     tonic::include_proto!("tei.v1");
-    tonic::include_proto!("messaging");
 }
 
 struct CrawlerService {
@@ -52,10 +49,7 @@ impl Crawler for CrawlerService {
                     .mongo_client
                     .database(DATABASE)
                     .repository::<Page>();
-                let count_options = CountOptions::builder()
-                    .hint(Hint::Keys(doc! {f!(url in Page): 1}))
-                    .limit(1)
-                    .build();
+                let count_options = CountOptions::builder().limit(1).build();
                 let past = chrono::Utc::now() - chrono::Duration::hours(1);
                 let filter = doc! {
                     f!(url in Page): url.as_str(),

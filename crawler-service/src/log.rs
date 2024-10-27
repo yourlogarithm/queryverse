@@ -10,7 +10,7 @@ pub struct Content {
     #[serde(rename = "bl")]
     pub body_length: usize,
     #[serde(rename = "e")]
-    pub edges: usize
+    pub edges: usize,
 }
 
 #[derive(Serialize)]
@@ -31,7 +31,7 @@ impl<'a> Log<'a> {
     pub fn from_url(url: &'a Url, robots_allows: bool) -> Self {
         Self {
             url: Cow::Borrowed(url.as_str()),
-            domain: url.domain().map(|d| Cow::Borrowed(d)),
+            domain: url.domain().map(Cow::Borrowed),
             robots_allows,
             error: false,
             data: None,

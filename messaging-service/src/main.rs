@@ -41,7 +41,7 @@ impl Messaging for MessagingService {
         let mut map = self.queues.lock().await;
         tracing::debug!("Publishing {} URLs", payloads.len());
         for payload in payloads {
-            tracing::debug!(domain = %payload.queue, url = %payload.message, "Adding URL to queue");
+            tracing::info!(domain = %payload.queue, url = %payload.message, "Added");
             let entry = map.entry(payload.queue).or_default();
             entry.add(payload.message);
             self.notifier.notify_one();
@@ -116,12 +116,12 @@ async fn consume(
         .get_multiplexed_tokio_connection()
         .await
         .context("redis get_multiplexed_tokio_connection")
-        .map_err(|e| ConsumeErrorKind::EmptyError(e))?;
+        .map_err(ConsumeErrorKind::EmptyError)?;
     let values: Vec<Option<u8>> = conn
         .mget(&keys)
         .await
         .context("redis mget")
-        .map_err(|e| ConsumeErrorKind::EmptyError(e))?;
+        .map_err(ConsumeErrorKind::EmptyError)?;
     let entry = {
         let mut rng = rand::thread_rng();
         map.iter_mut()
@@ -134,19 +134,19 @@ async fn consume(
     if let Some((domain, queue)) = entry {
         let domain = domain.to_owned();
         let Some(url) = queue.pop() else {
-            tracing::debug!(domain = %domain, "Queue emptied, removing domain");
+            tracing::info!(domain = %domain, "Queue emptied, removing domain");
             map.remove(&domain);
             return Ok(());
         };
         if queue.is_empty() {
-            tracing::debug!(domain = %domain, "Queue emptied, removing domain");
+            tracing::info!(domain = %domain, "Queue emptied, removing domain");
             map.remove(&domain);
         }
         drop(map);
         if let Err(e) = cooldown(&domain, &mut conn).await {
             tracing::error!(error = %e, domain = %domain, "Failed to set cooldown");
         }
-        tracing::debug!(domain = %domain, "Sending URL to subscriber");
+        tracing::info!(domain = %domain, url = %url, "Sending");
         tx.send(Ok(Url { url: url.clone() }))
             .await
             .map_err(|error| ConsumeErrorKind::SendError { domain, error })?;
@@ -189,7 +189,7 @@ async fn serve() {
     };
 
     let addr = "0.0.0.0:50051".parse().unwrap();
-    tracing::debug!(address = %addr, "Server listening");
+    tracing::info!(address = %addr, "Server listening at {addr}");
     Server::builder()
         .add_service(health_service)
         .add_service(MessagingServer::new(service))

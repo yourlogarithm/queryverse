@@ -51,10 +51,10 @@ async fn search(
         .await
         .map_err(|e| {
             tracing::error!("Failed to embed query: {e:#}");
-            return ApiError {
+            ApiError {
                 message: "Failed to process query".to_string(),
                 error: models::error::ErrorType::InternalServerError,
-            };
+            }
         })?
         .into_inner();
     let search_points = SearchPointsBuilder::new(COLLNAME, embeddings, limit.unwrap_or(10).min(50))
@@ -66,10 +66,10 @@ async fn search(
         .await
         .map_err(|e| {
             tracing::error!("Failed to search points: {e:#}");
-            return ApiError {
+            ApiError {
                 message: "Failed to find results".to_string(),
                 error: models::error::ErrorType::InternalServerError,
-            };
+            }
         })?;
 
     let matches: Vec<_> = result

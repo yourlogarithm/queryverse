@@ -5,7 +5,7 @@ use qdrant_client::Qdrant;
 use serde::Deserialize;
 use utils::database::{init_mongo, init_qdrant};
 
-use crate::proto::{embed_client::EmbedClient, messaging_client::MessagingClient};
+use crate::proto::embed_client::EmbedClient;
 
 pub const APP_USER_AGENT: &str = concat!(env!("CARGO_PKG_NAME"), "/", env!("CARGO_PKG_VERSION"));
 
@@ -16,8 +16,8 @@ pub struct AppState {
     pub qdrant_client: Arc<Qdrant>,
     pub mongo_client: mongodm::mongo::Client,
     pub tei_client: EmbedClient<tonic::transport::Channel>,
-    pub messaging_client: MessagingClient<tonic::transport::Channel>,
     pub logstash_uri: String,
+    pub amqp_channel: lapin::Channel,
 }
 
 #[derive(Deserialize)]
@@ -26,9 +26,9 @@ struct AppConfig {
     pub qdrant_uri_write: String,
     pub mongo_uri_write: String,
     pub tei_uri: String,
-    pub messaging_uri: String,
     pub vector_dim: u64,
     pub logstash_uri: String,
+    pub amqp_uri: String,
 }
 
 impl AppState {
@@ -54,9 +54,14 @@ impl AppState {
             .unwrap();
 
         let tei_client = EmbedClient::connect(app_config.tei_uri).await.unwrap();
-        let messaging_client = MessagingClient::connect(app_config.messaging_uri)
+
+        let options = lapin::ConnectionProperties::default();
+        // .with_executor(tokio_executor_trait::Tokio::current())
+        // .with_reactor(tokio_reactor_trait::Tokio);
+        let connection = lapin::Connection::connect(&app_config.amqp_uri, options)
             .await
             .unwrap();
+        let amqp_channel = connection.create_channel().await.unwrap();
 
         Self {
             redis_client,
@@ -66,8 +71,8 @@ impl AppState {
             ),
             mongo_client: init_mongo(&app_config.mongo_uri_write).await.unwrap(),
             tei_client,
-            messaging_client,
-            logstash_uri: app_config.logstash_uri
+            logstash_uri: app_config.logstash_uri,
+            amqp_channel,
         }
     }
 }

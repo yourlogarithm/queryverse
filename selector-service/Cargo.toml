@@ -8,10 +8,15 @@ tokio = { version = "1.38", features = ["full"] }
 tracing = "0.1"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-utils = { path = "../utils" }
+utils = { path = "../utils", features = ["redis"]}
 config = "0.14"
 tonic = "0.12"
 prost = "0.13"
+redis = { version = "0.27.5", features = ["tokio", "tokio-comp"] }
+rand = "0.8.5"
+lapin = "2.5.0"
+rabbitmq-management-client = "0.2.0"
+futures = "0.3.31"
 
 [build-dependencies]
 tonic-build = "0.12"

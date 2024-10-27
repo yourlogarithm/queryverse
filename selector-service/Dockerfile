@@ -17,6 +17,7 @@ RUN cargo build --release --bin ${APP_NAME}
 
 FROM debian:bookworm-slim AS runtime
 ARG APP_NAME
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/${APP_NAME} /usr/local/bin/app
 ENTRYPOINT ["/usr/local/bin/app"]

@@ -3,7 +3,7 @@ pub enum Key<'a> {
     Cooldown(&'a str),
 }
 
-impl<'a> redis::ToRedisArgs for Key<'a> {
+impl redis::ToRedisArgs for Key<'_> {
     fn write_redis_args<W>(&self, out: &mut W)
     where
         W: ?Sized + redis::RedisWrite,

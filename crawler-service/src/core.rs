@@ -1,35 +1,34 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{
     log::{Content, Log},
-    proto::{
-        messaging_client::MessagingClient, EmbedRequest, EmbedResponse, Payload, PublishRequest,
-    },
+    proto::{EmbedRequest, EmbedResponse},
     state::AppState,
+    traverse::HtmlTraverse,
 };
 use anyhow::Context;
+use ego_tree::iter::Edge;
+use lapin::{options::QueueDeclareOptions, types::FieldTable, BasicProperties};
 use mongodb::bson::{doc, Uuid};
 use mongodm::{
     f,
-    mongo::options::{Hint, ReturnDocument},
+    mongo::options::ReturnDocument,
     operator::{Set, SetOnInsert},
     ToRepository,
 };
 use qdrant_client::qdrant::{value::Kind, PointStruct, UpsertPointsBuilder, Value};
-use scraper::{Html, Selector};
+use scraper::{Html, Node, Selector};
+use std::collections::{HashMap, HashSet};
 use url::Url;
 use utils::database::{Page, UuidProjection, COLLNAME, DATABASE};
 
 lazy_static::lazy_static! {
     static ref WHITESPACES: regex::Regex = regex::Regex::new(r"(\s)\s+").unwrap();
-    static ref PARAGRAPH_SELECTOR: Selector = Selector::parse("p").unwrap();
     static ref HREF_SELECTOR: Selector = Selector::parse("a[href]").unwrap();
     static ref TITLE_SELECTOR: Selector = Selector::parse("title").unwrap();
 }
 
 #[tracing::instrument(skip(log, state), fields(url = %url))]
 pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::Result<()> {
-    let content = if let Some(content) = get_content(url, &state.reqwest_client).await? {
+    let content = if let Some(content) = get_content(url, state).await? {
         content
     } else {
         tracing::debug!(url = %url, "Skipping URL due to empty content");
@@ -38,21 +37,24 @@ pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::
     tracing::debug!(content_length = content.len(), url = %url, "Retrieved content");
 
     let document = Html::parse_document(&content);
-    let body = document
-        .select(&PARAGRAPH_SELECTOR)
-        .map(|e| e.text().collect::<Vec<_>>().join(" "))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let body = WHITESPACES.replace_all(&body, "$1").to_string();
+
+    let mut body = String::new();
+    let traverse = HtmlTraverse::new(*document.root_element());
+    for edge in traverse {
+        if let Edge::Open(node) = edge {
+            if let Node::Text(ref text) = node.value() {
+                body.push_str(text);
+                body.push_str(" ");
+            }
+        }
+    }
+
+    let body = WHITESPACES.replace_all(&body, " ").to_string();
     tracing::debug!(body_length = body.len(), url = %url, "Extracted and processed body");
 
     let links: HashSet<_> = document
         .select(&HREF_SELECTOR)
-        .flat_map(|e| {
-            e.value()
-                .attr("href")
-                .map(|relative| url.join(relative))
-        })
+        .flat_map(|e| e.value().attr("href").map(|relative| url.join(relative)))
         .flatten()
         .map(|mut url| {
             url.set_fragment(None);
@@ -60,7 +62,7 @@ pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::
         })
         .filter(|edge| edge != url)
         .collect();
-    tracing::debug!(edge_count = links.len(), url = %url, "Extracted links");
+    tracing::debug!(links = links.len(), url = %url, "Extracted links");
 
     log.data = Some(Content {
         content_length: content.len(),
@@ -84,7 +86,6 @@ pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::
     };
     if body.is_empty() {
         let options = mongodm::mongo::options::UpdateOptions::builder()
-            .hint(Hint::Keys(doc! { f!(url in Page): 1 }))
             .upsert(true)
             .build();
         let result = state
@@ -103,7 +104,6 @@ pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::
         );
     } else {
         let options = mongodm::mongo::options::FindOneAndUpdateOptions::builder()
-            .hint(Hint::Keys(doc! { f!(url in Page): 1 }))
             .return_document(ReturnDocument::After)
             .projection(doc! { f!(uuid in Page): 1 })
             .upsert(true)
@@ -161,7 +161,7 @@ pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::
                 let request = UpsertPointsBuilder::new(COLLNAME, vec![point]);
                 match state.qdrant_client.upsert_points(request).await {
                     Ok(info) => {
-                        tracing::debug!(operation_id = ?info.result.map(|r| r.operation_id), url = %url, "Upserted embeddings")
+                        tracing::debug!(operation_id = info.result.map(|r| r.operation_id), url = %url, "Upserted embeddings")
                     }
                     Err(e) => {
                         tracing::error!(error = %e, url = %url, "Failed to upsert embeddings")
@@ -173,63 +173,75 @@ pub async fn process(url: &Url, log: &mut Log<'_>, state: &AppState) -> anyhow::
     }
 
     tracing::debug!(url = %url, "Publishing links");
-    publish(links, &state.messaging_client).await
+    let tasks = links.iter().filter_map(|link| {
+        if let Some(domain) = link.domain() {
+            Some(publish(domain, link, &state.amqp_channel))
+        } else {
+            None
+        }
+    });
+    futures::future::join_all(tasks)
+        .await
+        .into_iter()
+        .collect::<Result<(), _>>()
+        .context("Link publishing")
 }
 
-#[tracing::instrument(skip(client), fields(url = %url.as_str()))]
-async fn get_content(url: &url::Url, client: &reqwest::Client) -> anyhow::Result<Option<String>> {
-    tracing::debug!(url = %url, "Sending HEAD request");
-    let response = client
-        .head(url.clone())
-        .send()
-        .await
-        .context("HEAD Request")?
-        .error_for_status()
-        .context("HEAD Response")?;
-    if let Some(content_type) = response.headers().get("content-type") {
-        if !content_type.to_str()?.contains("text/html") {
-            tracing::debug!(content_type = ?content_type, "Skipping non-HTML content");
-            return Ok(None);
-        }
-    }
+#[tracing::instrument(skip(state), fields(url = %url.as_str()))]
+async fn get_content(url: &url::Url, state: &AppState) -> anyhow::Result<Option<String>> {
     tracing::debug!(url = %url, "Sending GET request");
-    let content = client
+    let response = state
+        .reqwest_client
         .get(url.clone())
         .send()
         .await
-        .context("GET Request")?
-        .text()
-        .await
-        .context("GET Response")?;
-    Ok(Some(content))
+        .context("GET send")?
+        .error_for_status()
+        .context("GET response")?;
+    if let Some(value) = response.headers().get(reqwest::header::CONTENT_TYPE) {
+        let str_mime = value
+            .to_str()
+            .with_context(|| format!("{} to_str", reqwest::header::CONTENT_TYPE))?;
+        let mime: mime::Mime = str_mime.parse().with_context(|| {
+            format!(
+                "{} parse from {str_mime} failed",
+                reqwest::header::CONTENT_TYPE
+            )
+        })?;
+        if mime != mime::TEXT_HTML_UTF_8 {
+            tracing::debug!(mime = ?mime, "Skipping non-HTML content");
+            return Ok(None);
+        }
+    } else {
+        tracing::debug!(url = %url, "{} missing", reqwest::header::CONTENT_TYPE)
+    }
+    response.text().await.map(Some).context("content")
 }
 
-async fn publish(
-    urls: HashSet<url::Url>,
-    client: &MessagingClient<tonic::transport::Channel>,
-) -> anyhow::Result<()> {
-    let payloads: Vec<_> = urls
-        .iter()
-        .filter_map(|url| {
-            if let Some(domain) = url.domain() {
-                Some(Payload {
-                    queue: domain.to_owned(),
-                    message: url.to_string(),
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
-    if payloads.is_empty() {
-        tracing::debug!("No valid payloads to publish");
-        return Ok(());
-    }
-    tracing::debug!(payload_count = payloads.len(), "Publishing payloads");
-    client
-        .clone()
-        .publish_urls(PublishRequest { payloads })
+async fn publish(domain: &str, url: &url::Url, channel: &lapin::Channel) -> anyhow::Result<()> {
+    channel
+        .queue_declare(
+            domain,
+            QueueDeclareOptions {
+                durable: true,
+                ..Default::default()
+            },
+            FieldTable::default(),
+        )
         .await
-        .context("messaging publish")
-        .map(|r| r.into_inner())
+        .context("queue declare")?;
+    let props = BasicProperties::default().with_delivery_mode(2);
+    channel
+        .basic_publish(
+            "",
+            domain,
+            Default::default(),
+            url.as_str().as_bytes(),
+            props,
+        )
+        .await
+        .context("basic publish")?
+        .await
+        .context("publish confirm")?;
+    Ok(())
 }

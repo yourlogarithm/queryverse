@@ -1,5 +1,5 @@
 x-common-env: &common-env
-  RUST_LOG: INFO
+  RUST_LOG: ${RUST_LOG}
   OTEL_COLLECTOR: http://otel-collector:4317
   REDIS_URI: redis://redis:6379
   QDRANT_URI_WRITE: http://qdrant:6334
@@ -9,7 +9,12 @@ x-common-env: &common-env
   MESSAGING_URI: grpc://messaging-service:50051
   CRAWLER_URI: grpc://crawler-service:50051
   LOGSTASH_URI: http://logstash:5044
-  VECTOR_DIM: 1024
+  RABBITMQ_API_URL: http://rabbitmq:15672
+  AMQP_URI: amqp://rabbitmq:5672
+  AMQP_USR: guest
+  AMQP_PWD: guest
+  VECTOR_DIM: 384
+  SELECTOR_CONCURRENT: 1
 
 services:
   backend:
@@ -26,7 +31,6 @@ services:
     environment:
       <<: *common-env
 
-
   crawler-service:
     build:
       context: .
@@ -41,6 +45,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       <<: *common-env
 
@@ -51,23 +57,9 @@ services:
       args:
         APP_NAME: selector-service
     restart: always
-    environment:
-      <<: *common-env
-
-  messaging-service:
-    build:
-      context: .
-      dockerfile: messaging-service/Dockerfile
-      args:
-        APP_NAME: messaging-service
-    restart: always
-    ports:
-      - 50052:50051
     depends_on:
-      redis:
+      rabbitmq:
         condition: service_healthy
-    expose:
-      - 50051
     environment:
       <<: *common-env
 
@@ -77,9 +69,11 @@ services:
       target: grpc
     expose:
       - 50051
+    ports:
+      - 50053:50051
     volumes:
       - ./data:/data
-    command: [ "--model-id", "BAAI/bge-m3", "--port", "50051", "--otlp-endpoint", "http://otel-collector:4317", "--payload-limit", "200000000", "--max-concurrent-requests", "1024" ]
+    command: [ "--model-id", "intfloat/multilingual-e5-small", "--port", "50051", "--otlp-endpoint", "http://otel-collector:4317", "--payload-limit", "200000000", "--max-concurrent-requests", "1024" ]
 
   redis:
     image: redis:alpine
@@ -183,6 +177,8 @@ services:
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
+    ports:
+      - 4317:4317
     restart: always
     command: [ "--config=/etc/otel-collector-config.yaml" ]
     volumes:
@@ -225,6 +221,20 @@ services:
       - 5601:5601
     depends_on:
       - elasticsearch
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    ports:
+      - 5672:5672
+      - 15672:15672
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    volumes:
+      - ./data/rabbitmq/data:/var/lib/rabbitmq
+      - ./data/rabbitmq/log:/var/log/rabbitmq
 
 volumes:
   esdata:
