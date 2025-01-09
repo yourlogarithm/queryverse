@@ -1,4 +1,4 @@
-# Web Search Engine
+# QueryVerse
 ## Overview
 
 Natural Language Processing powered Web Seach Engine.
