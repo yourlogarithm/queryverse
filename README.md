@@ -10,6 +10,7 @@ It leverages a stack consisting of:
 - **Tempo** - Tracing
 - **Grafana** - Monitoring
 - **Text Embeddings Inference API** - Document Embeddings
+- **ELK Stack** - Log management
 
 To start the application, simply run:
 ```sh
